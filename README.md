@@ -1,1 +1,1 @@
-# YWHealth
+# MCP Quick
