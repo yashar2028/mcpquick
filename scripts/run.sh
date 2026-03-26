@@ -40,4 +40,3 @@ else
     echo "Failed to find or create a virtual environment."
     exit 1
 fi
-
