@@ -1,11 +1,11 @@
 #!/bin/bash
 
 # Define variables for the database.
-DB_NAME="phr"
+DB_NAME="mcpquick"
 DB_USER="user1"
 DB_PASSWORD="12345678910"
 DB_PORT=5432
-DB_CONTAINER_NAME="phr_database"
+DB_CONTAINER_NAME="mcpquick_database"
 
 # Check if the container exists (whether stopped or running).
 EXISTING_CONTAINER=$(docker ps -aq -f name=$DB_CONTAINER_NAME)
