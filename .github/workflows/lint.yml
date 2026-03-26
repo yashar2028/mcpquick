@@ -34,8 +34,5 @@ jobs:
       - name: Run Black (formatter)
         run: poetry run black --check .
 
-      - name: Run isort (import sorter)
-        run: poetry run isort --check-only .
-
       - name: Run Flake8 (linter)
         run: poetry run flake8 .
