@@ -172,3 +172,8 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Sandbox runtime artifacts
+.sandbox_runs/
+
+PLAN.md

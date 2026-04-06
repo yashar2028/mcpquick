@@ -19,7 +19,6 @@ if config.config_file_name is not None:
 # Convert async URL to sync for migrations
 async_url = settings.DATABASE_URL  # postgresql+asyncpg://user1:...
 sync_url = async_url.replace("+asyncpg", "")  # -> postgresql://...
-
 config.set_main_option("sqlalchemy.url", sync_url)
 
 

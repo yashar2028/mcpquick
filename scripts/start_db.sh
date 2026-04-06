@@ -4,7 +4,7 @@
 DB_NAME="mcpquick_dev"
 DB_USER="user1"
 DB_PASSWORD="12345678910"
-DB_PORT=5432
+DB_PORT=5433
 DB_CONTAINER_NAME="mcpquick_dev_database"
 
 # Check if the container exists (whether stopped or running).
