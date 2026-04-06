@@ -42,7 +42,3 @@ if [[ ! -f "$ACTIVATE_PATH" ]]; then
     echo "Activation script not found at: $ACTIVATE_PATH"
     exit 1
 fi
-
-echo "Poetry environment found at $VENV_PATH"
-echo "Entering virtual environment shell..."
-exec bash --rcfile <(printf 'source "%s"\n' "$ACTIVATE_PATH")
