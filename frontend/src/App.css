@@ -1,42 +1,133 @@
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+.shell {
+  width: min(1120px, 92vw);
+  margin: 3rem auto;
+  display: grid;
+  gap: 1rem;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+.hero {
+  padding: 1.5rem;
+  border-radius: 16px;
+  background: linear-gradient(120deg, #0d2b45, #12395b 55%, #1a4f7a);
+  color: #ecf5ff;
+  box-shadow: 0 10px 40px rgba(13, 43, 69, 0.3);
 }
 
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
+.hero h1 {
+  margin: 0.3rem 0;
+  font-size: clamp(1.8rem, 3vw, 2.6rem);
+}
+
+.eyebrow {
+  margin: 0;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  color: #9cc6ea;
+}
+
+.panel {
+  background: #f7fbff;
+  border: 1px solid #d5e5f3;
+  border-radius: 14px;
+  padding: 1rem 1.2rem;
+  box-shadow: 0 10px 20px rgba(16, 43, 64, 0.06);
+}
+
+.panel h2 {
+  margin-top: 0.2rem;
+}
+
+.run-form {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.run-form textarea,
+.run-form input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 0.3rem;
+  border: 1px solid #b9d3ea;
+  border-radius: 8px;
+  padding: 0.6rem 0.7rem;
+  background: #ffffff;
+}
+
+.run-form textarea {
+  resize: vertical;
+}
+
+.row {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+button {
+  justify-self: start;
+  border: none;
+  border-radius: 999px;
+  padding: 0.65rem 1.2rem;
+  background: #1567a5;
+  color: #fff;
+  font-weight: 600;
+}
+
+button:disabled {
+  opacity: 0.7;
+}
+
+.grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.events {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.6rem;
+  max-height: 340px;
+  overflow: auto;
+}
+
+.events li {
+  border-left: 3px solid #1567a5;
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 0.55rem 0.7rem;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.status-block {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.status-block p {
+  margin: 0;
+}
+
+.report ul {
+  margin: 0.3rem 0 0;
+}
+
+.error {
+  color: #a11313;
+  font-weight: 600;
+}
+
+@media (max-width: 900px) {
+  .grid {
+    grid-template-columns: 1fr;
   }
-  to {
-    transform: rotate(360deg);
+
+  .row {
+    grid-template-columns: 1fr;
   }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
-}
-
-.card {
-  padding: 2em;
-}
-
-.read-the-docs {
-  color: #888;
 }

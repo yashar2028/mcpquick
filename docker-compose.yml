@@ -1,0 +1,62 @@
+services:
+  db:
+    image: postgres:17
+    container_name: mcpquick_db
+    environment:
+      POSTGRES_DB: mcpquick_dev
+      POSTGRES_USER: user1
+      POSTGRES_PASSWORD: "12345678910"
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user1 -d mcpquick_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mcpquick_backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://user1:12345678910@db:5432/mcpquick_dev
+      SANDBOX_PROFILE: nix-sandbox-v1
+      ENABLE_GITHUB_MCP_INGESTION: "false"
+      SANDBOX_COMMAND_PREFIX: ""
+      SANDBOX_NIX_BINARY: nix
+      SANDBOX_NIX_FLAKE_REF: ./sandbox-nix#mcp-runner
+      SANDBOX_RUNTIME_MODULE: app.sandbox.runtime_entry
+      SANDBOX_TIMEOUT_SECONDS: "600"
+      SANDBOX_RUN_BASE_DIR: .sandbox_runs
+      SANDBOX_ALLOW_LOCAL_FALLBACK: "true"
+      SANDBOX_LOCAL_PYTHON_BINARY: python
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    command: bash -lc "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: mcpquick_frontend
+    depends_on:
+      - backend
+    environment:
+      VITE_API_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: npm run dev -- --host 0.0.0.0 --port 5173
+
+volumes:
+  postgres_data:
