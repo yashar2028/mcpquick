@@ -3,6 +3,8 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     DATABASE_URL: str
+    AUTH_JWT_SECRET: str = "change-me-in-env"
+    AUTH_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
     SANDBOX_PROFILE: str = "nix-sandbox-v1"
     ENABLE_GITHUB_MCP_INGESTION: bool = False
     SANDBOX_COMMAND_PREFIX: str = ""

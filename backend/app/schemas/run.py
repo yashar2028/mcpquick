@@ -31,6 +31,10 @@ class RunCreateRequest(BaseModel):
         )
 
 
+class RunRetryRequest(BaseModel):
+    api_key: str = Field(min_length=1, max_length=500)
+
+
 class RunDetailResponse(BaseModel):
     id: str
     provider: str

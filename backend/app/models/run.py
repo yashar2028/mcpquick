@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from sqlalchemy import (
@@ -20,6 +20,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
+if TYPE_CHECKING:
+    from app.models.user import User
+
 
 class RunStatus(str, Enum):
     QUEUED = "queued"
@@ -33,6 +36,12 @@ class EvaluationRun(Base):
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid4())
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     provider: Mapped[str] = mapped_column(String(64), nullable=False)
     model: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -93,6 +102,7 @@ class EvaluationRun(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    user: Mapped[User] = relationship("User", back_populates="runs")
 
 
 class RunEvent(Base):
