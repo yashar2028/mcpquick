@@ -3,18 +3,32 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 
 class RunCreateRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=20000)
-    provider: str = Field(default="claude", min_length=1, max_length=64)
-    model: str = Field(default="claude-sonnet", min_length=1, max_length=128)
+    provider: str = Field(default="anthropic", min_length=1, max_length=64)
+    model: str = Field(default="claude-3-5-sonnet-latest", min_length=1, max_length=128)
     api_key: str = Field(min_length=1, max_length=500)
     max_steps: int = Field(default=20, ge=1, le=200)
 
     enable_external_mcp: bool = Field(default=False)
     external_mcp_url: HttpUrl | None = None
+
+    @field_validator("provider")
+    @classmethod
+    def normalize_provider(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized in {"claude", "anthropic"}:
+            return "anthropic"
+        if normalized in {"openai", "gpt"}:
+            return "openai"
+        if normalized in {"google", "gemini"}:
+            return "gemini"
+        raise ValueError(
+            "provider must be one of: openai, anthropic, claude, google, gemini"
+        )
 
 
 class RunDetailResponse(BaseModel):
@@ -54,6 +68,12 @@ class RunEventResponse(BaseModel):
     step_index: int | None
     payload: dict[str, Any]
     created_at: datetime
+
+
+class RunLogsResponse(BaseModel):
+    run_id: str
+    stdout_tail: str | None
+    stderr_tail: str | None
 
 
 class RunReportResponse(BaseModel):

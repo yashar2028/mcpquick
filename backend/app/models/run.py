@@ -38,7 +38,13 @@ class EvaluationRun(Base):
     model: Mapped[str] = mapped_column(String(128), nullable=False)
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[RunStatus] = mapped_column(
-        SQLEnum(RunStatus, name="run_status"), nullable=False, default=RunStatus.QUEUED
+        SQLEnum(
+            RunStatus,
+            name="run_status",
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
+        nullable=False,
+        default=RunStatus.QUEUED,
     )
     max_steps: Mapped[int] = mapped_column(Integer, nullable=False, default=20)
 

@@ -3,12 +3,30 @@ import axios from "axios";
 import "./App.css";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const MAX_PAYLOAD_CHARS = 1400;
 
 function formatScore(value) {
   if (value === null || value === undefined) {
     return "-";
   }
   return `${Math.round(value * 100)} / 100`;
+}
+
+function formatPayload(payload) {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const text = JSON.stringify(payload, null, 2);
+  if (!text) {
+    return null;
+  }
+
+  if (text.length <= MAX_PAYLOAD_CHARS) {
+    return text;
+  }
+
+  return `${text.slice(0, MAX_PAYLOAD_CHARS)}\n...<truncated>`;
 }
 
 function App() {
@@ -19,8 +37,8 @@ function App() {
   const [prompt, setPrompt] = useState(
     "Summarize the task and propose a safe 3-step execution plan before running tools."
   );
-  const [provider, setProvider] = useState("claude");
-  const [model, setModel] = useState("claude-sonnet");
+  const [provider, setProvider] = useState("gemini");
+  const [model, setModel] = useState("gemini-2.0-flash");
   const [apiKey, setApiKey] = useState("");
   const [maxSteps, setMaxSteps] = useState(20);
   const [submitting, setSubmitting] = useState(false);
@@ -28,6 +46,7 @@ function App() {
   const [run, setRun] = useState(null);
   const [events, setEvents] = useState([]);
   const [report, setReport] = useState(null);
+  const [runLogs, setRunLogs] = useState(null);
 
   const runInProgress = useMemo(() => {
     if (!run) {
@@ -72,6 +91,15 @@ function App() {
             `${API_BASE_URL}/v1/runs/${run.id}/report`
           );
           setReport(reportResponse.data);
+          setRunLogs(null);
+        }
+
+        if (runResponse.data.status === "failed") {
+          setError(runResponse.data.error_message || "Run failed");
+          const logsResponse = await axios.get(
+            `${API_BASE_URL}/v1/runs/${run.id}/logs`
+          );
+          setRunLogs(logsResponse.data);
         }
       } catch (err) {
         setError(err.response?.data?.detail || err.message);
@@ -86,6 +114,7 @@ function App() {
     setError(null);
     setReport(null);
     setEvents([]);
+    setRunLogs(null);
 
     try {
       setSubmitting(true);
@@ -193,6 +222,9 @@ function App() {
               </p>
               <p>Estimated Cost: ${run.estimated_cost_usd}</p>
               <p>Score: {formatScore(run.total_score)}</p>
+              {run.status === "failed" ? (
+                <p className="status-error">Failure Reason: {run.error_message || "Unknown error"}</p>
+              ) : null}
             </div>
           )}
         </article>
@@ -207,6 +239,12 @@ function App() {
                 <li key={item.id}>
                   <strong>{item.event_type}</strong>
                   <span>{item.message}</span>
+                  {formatPayload(item.payload) ? (
+                    <details>
+                      <summary>details</summary>
+                      <pre>{formatPayload(item.payload)}</pre>
+                    </details>
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -215,9 +253,29 @@ function App() {
       </section>
 
       <section className="panel">
+        <h2>Sandbox Logs</h2>
+        {!runLogs ? (
+          <p>Logs appear automatically for failed runs.</p>
+        ) : (
+          <div className="logs-grid">
+            <div>
+              <h3>stderr tail</h3>
+              <pre className="log-box">{runLogs.stderr_tail || "(empty)"}</pre>
+            </div>
+            <div>
+              <h3>stdout tail</h3>
+              <pre className="log-box">{runLogs.stdout_tail || "(empty)"}</pre>
+            </div>
+          </div>
+        )}
+      </section>
+
+      <section className="panel">
         <h2>Final Report</h2>
-        {!report ? (
+        {!report && run?.status !== "failed" ? (
           <p>Report will appear when run completes.</p>
+        ) : run?.status === "failed" ? (
+          <p>Run failed before report generation. Check Failure Reason and Sandbox Logs above.</p>
         ) : (
           <div className="report">
             <p>Total Score: {formatScore(report.total_score)}</p>

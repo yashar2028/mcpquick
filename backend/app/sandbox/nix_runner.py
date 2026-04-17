@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
@@ -20,6 +21,7 @@ from app.sandbox.contracts import (
 
 
 MAX_LOG_CHARS: Final[int] = 4000
+PROVIDER_API_KEY_ENV: Final[str] = "SANDBOX_PROVIDER_API_KEY"
 
 
 class SandboxBoundaryError(RuntimeError):
@@ -49,8 +51,15 @@ class NixSandboxRunner:
     def __init__(self, config: NixSandboxRunnerConfig):
         self._config = config
 
-    async def run(self, request: SandboxExecutionRequest) -> SandboxExecutionResult:
+    async def run(
+        self, request: SandboxExecutionRequest, provider_api_key: str
+    ) -> SandboxExecutionResult:
         """Run one sandbox task and return validated typed result."""
+        if not provider_api_key:
+            raise SandboxBoundaryError(
+                "Provider API key was missing for sandbox execution"
+            )
+
         run_dir = self._config.runs_base_dir / request.run_id
         run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -96,9 +105,10 @@ class NixSandboxRunner:
 
         fallback_used = False
         fallback_note = ""
+        env_extra = {PROVIDER_API_KEY_ENV: provider_api_key}
 
         try:
-            process = await self._spawn_process(nix_command)
+            process = await self._spawn_process(nix_command, env_extra)
         except FileNotFoundError as exc:
             if not self._config.allow_local_fallback:
                 raise SandboxBoundaryError(
@@ -107,7 +117,7 @@ class NixSandboxRunner:
                 ) from exc
 
             try:
-                process = await self._spawn_process(local_command)
+                process = await self._spawn_process(local_command, env_extra)
             except FileNotFoundError as local_exc:
                 raise SandboxBoundaryError(
                     "Both nix launcher and local fallback launcher were not found. "
@@ -159,11 +169,17 @@ class NixSandboxRunner:
                 f"Sandbox returned invalid result shape: {exc}"
             ) from exc
 
-    async def _spawn_process(self, command: list[str]) -> asyncio.subprocess.Process:
+    async def _spawn_process(
+        self, command: list[str], env_extra: dict[str, str]
+    ) -> asyncio.subprocess.Process:
         """Spawn a subprocess for sandbox execution command."""
+        env = os.environ.copy()
+        env.update(env_extra)
+
         return await asyncio.create_subprocess_exec(
             *command,
             cwd=str(self._config.backend_workdir),
+            env=env,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

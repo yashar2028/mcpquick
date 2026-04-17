@@ -10,6 +10,7 @@ This module exposes the public HTTP surface used by the frontend to:
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import desc, func, select
@@ -23,39 +24,26 @@ from app.schemas.run import (
     RunDetailResponse,
     RunEventResponse,
     RunListResponse,
+    RunLogsResponse,
     RunReportResponse,
 )
+from app.services.api_keys import stash_run_api_key
+from app.services.run_logs import read_run_log_tails
+from app.services.run_presenters import to_run_detail, to_run_event_response
 from app.workers.run_worker import enqueue_run
 
 router = APIRouter(prefix="/v1/runs", tags=["runs"])
 
 
-def _to_run_detail(run: EvaluationRun) -> RunDetailResponse:
-    """Map ORM run model to the API detail response schema."""
-    return RunDetailResponse(
-        id=run.id,
-        provider=run.provider,
-        model=run.model,
-        status=run.status.value,
-        prompt=run.prompt,
-        max_steps=run.max_steps,
-        sandbox_profile=run.sandbox_profile,
-        requested_external_mcp_url=run.requested_external_mcp_url,
-        external_mcp_enabled=run.external_mcp_enabled,
-        step_count=run.step_count,
-        token_input=run.token_input,
-        token_output=run.token_output,
-        estimated_cost_usd=run.estimated_cost_usd,
-        latency_ms=run.latency_ms,
-        total_score=run.total_score,
-        score_breakdown=run.score_breakdown,
-        evaluation_summary=run.evaluation_summary,
-        error_message=run.error_message,
-        created_at=run.created_at,
-        updated_at=run.updated_at,
-        started_at=run.started_at,
-        finished_at=run.finished_at,
-    )
+async def _get_run_or_404(db: AsyncSession, run_id: str) -> EvaluationRun:
+    """Load run by id or raise 404 if not found."""
+    result = await db.execute(select(EvaluationRun).where(EvaluationRun.id == run_id))
+    run = result.scalar_one_or_none()
+    if run is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Run not found"
+        )
+    return run
 
 
 @router.post("", response_model=RunDetailResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -100,14 +88,13 @@ async def create_run(payload: RunCreateRequest, db: AsyncSession = Depends(get_d
     )
 
     db.add(run)
+    await db.flush()
+    await stash_run_api_key(run.id, payload.api_key)
     await db.commit()
     await db.refresh(run)
 
-    enqueue_run(
-        run.id
-    )  # Handling of the run is delegated to the asynchronous worker which will update the run status and metrics upon completion.
-    # This will also add events to the run timeline (event_type) which can be queried by the frontend for real-time updates.
-    return _to_run_detail(run)
+    enqueue_run(run.id)
+    return to_run_detail(run)
 
 
 @router.get("", response_model=RunListResponse)
@@ -123,7 +110,7 @@ async def list_runs(
         .offset(offset)
         .limit(limit)
     )
-    items = [_to_run_detail(run) for run in result.scalars().all()]
+    items = [to_run_detail(run) for run in result.scalars().all()]
 
     count_result = await db.execute(select(func.count(EvaluationRun.id)))
     total = count_result.scalar_one()
@@ -133,13 +120,8 @@ async def list_runs(
 @router.get("/{run_id}", response_model=RunDetailResponse)
 async def get_run(run_id: str, db: AsyncSession = Depends(get_db)):
     """Return run details for a single run id."""
-    result = await db.execute(select(EvaluationRun).where(EvaluationRun.id == run_id))
-    run = result.scalar_one_or_none()
-    if run is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Run not found"
-        )
-    return _to_run_detail(run)
+    run = await _get_run_or_404(db, run_id)
+    return to_run_detail(run)
 
 
 @router.get("/{run_id}/events", response_model=list[RunEventResponse])
@@ -149,13 +131,7 @@ async def list_run_events(
     db: AsyncSession = Depends(get_db),
 ):
     """Return chronological event timeline for a run."""
-    run_result = await db.execute(
-        select(EvaluationRun.id).where(EvaluationRun.id == run_id)
-    )
-    if run_result.scalar_one_or_none() is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Run not found"
-        )
+    await _get_run_or_404(db, run_id)
 
     events_result = await db.execute(
         select(RunEvent)
@@ -165,29 +141,32 @@ async def list_run_events(
     )
 
     events = events_result.scalars().all()
-    return [
-        RunEventResponse(
-            id=event.id,
-            run_id=event.run_id,
-            event_type=event.event_type,
-            message=event.message,
-            step_index=event.step_index,
-            payload=event.payload,
-            created_at=event.created_at,
-        )
-        for event in events
-    ]
+    return [to_run_event_response(event) for event in events]
+
+
+@router.get("/{run_id}/logs", response_model=RunLogsResponse)
+async def get_run_logs(run_id: str, db: AsyncSession = Depends(get_db)):
+    """Return sandbox stdout/stderr tails for a run if available."""
+    await _get_run_or_404(db, run_id)
+
+    backend_root = Path(__file__).resolve().parents[2]
+    stdout_tail, stderr_tail = read_run_log_tails(
+        backend_root=backend_root,
+        runs_base_dir=settings.SANDBOX_RUN_BASE_DIR,
+        run_id=run_id,
+    )
+
+    return RunLogsResponse(
+        run_id=run_id,
+        stdout_tail=stdout_tail,
+        stderr_tail=stderr_tail,
+    )
 
 
 @router.get("/{run_id}/report", response_model=RunReportResponse)
 async def get_run_report(run_id: str, db: AsyncSession = Depends(get_db)):
     """Return final report once a run has completed successfully."""
-    result = await db.execute(select(EvaluationRun).where(EvaluationRun.id == run_id))
-    run = result.scalar_one_or_none()
-    if run is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Run not found"
-        )
+    run = await _get_run_or_404(db, run_id)
 
     if run.status in {RunStatus.QUEUED, RunStatus.RUNNING}:
         raise HTTPException(
@@ -206,11 +185,7 @@ async def get_run_report(run_id: str, db: AsyncSession = Depends(get_db)):
         )
 
     metric_scores = run.score_breakdown.get("metric_scores", {})
-    recommendations = [
-        "Improve tool selection precision to raise tool correctness score.",
-        "Reduce exploratory steps when the answer is already sufficiently grounded.",
-        "Track latency by step and cap non-essential tool calls.",
-    ]
+    recommendations = run.score_breakdown.get("recommendations") or []
 
     return RunReportResponse(
         run_id=run.id,

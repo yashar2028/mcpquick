@@ -19,6 +19,7 @@ class SandboxRunRequest:
     prompt: str
     provider: str
     model: str
+    api_key: str
     max_steps: int
     external_mcp_url: str | None
 
@@ -70,7 +71,8 @@ class NixSandboxAdapter:
                 model=request.model,
                 max_steps=request.max_steps,
                 external_mcp_url=request.external_mcp_url,
-            )
+            ),
+            provider_api_key=request.api_key,
         )
 
         return SandboxRunResult(
