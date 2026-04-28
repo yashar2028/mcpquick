@@ -25,6 +25,8 @@ if TYPE_CHECKING:
 
 
 class RunStatus(str, Enum):
+    """Persisted lifecycle states for an evaluation run."""
+
     QUEUED = "queued"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -32,6 +34,8 @@ class RunStatus(str, Enum):
 
 
 class EvaluationRun(Base):
+    """Primary run aggregate persisted for each user-submitted evaluation."""
+
     __tablename__ = "evaluation_runs"
 
     id: Mapped[str] = mapped_column(
@@ -106,6 +110,8 @@ class EvaluationRun(Base):
 
 
 class RunEvent(Base):
+    """Timeline event row associated with one evaluation run."""
+
     __tablename__ = "run_events"
 
     id: Mapped[str] = mapped_column(

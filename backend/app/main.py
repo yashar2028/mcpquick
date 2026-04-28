@@ -1,3 +1,5 @@
+"""FastAPI application entrypoint and top-level router wiring."""
+
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +22,7 @@ app.add_middleware(
 
 @app.get("/health")
 async def health(db: AsyncSession = Depends(get_db)):
+    """Lightweight health check that validates DB dependency wiring."""
     return {"status": "ok"}
 
 

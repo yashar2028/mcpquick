@@ -6,6 +6,7 @@ from app.sandbox.contracts import SandboxExecutionResult
 
 
 def _clamp(value: float) -> float:
+    """Clamp a metric-like value into the inclusive [0.0, 1.0] range."""
     if value < 0.0:
         return 0.0
     if value > 1.0:
@@ -27,6 +28,12 @@ def build_heuristic_result(
     normalized_output_len = len(output_text.strip())
     total_tokens = max(token_input + token_output, 1)
 
+    # Deterministic metric construction for non-judge evaluation:
+    # - task_success: penalize very short/likely-refusal outputs
+    # - tool_correctness: slightly stricter when external MCP is enabled
+    # - latency/cost efficiency: normalized penalties with bounded caps
+    # - step_efficiency: small reward for having room to reason across steps
+    # - reliability_recovery: verbosity proxy relative to prompt size
     task_success = 0.45 if normalized_output_len < 20 else 0.9
     text_lc = output_text.lower()
     if "unable" in text_lc or "i can't" in text_lc or "i cannot" in text_lc:

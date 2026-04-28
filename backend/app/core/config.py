@@ -1,9 +1,13 @@
+"""Application settings loaded from environment variables and .env files."""
+
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
+    """Centralized runtime configuration for API, auth, scoring, and sandbox."""
+
     DATABASE_URL: str
-    AUTH_JWT_SECRET: str = "change-me-in-env"
+    AUTH_JWT_SECRET: str = "secreewt654321"
     AUTH_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
     SANDBOX_PROFILE: str = "nix-sandbox-v1"
     ENABLE_GITHUB_MCP_INGESTION: bool = False

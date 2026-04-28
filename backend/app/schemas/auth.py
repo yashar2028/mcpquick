@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+"""Pydantic schemas for auth requests, responses, and public user profile."""
+
 from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator
 
 
 class UserPublic(BaseModel):
+    """Safe user fields exposed by auth/profile endpoints."""
+
     id: str
     email: str
     full_name: str | None
@@ -13,6 +17,8 @@ class UserPublic(BaseModel):
 
 
 class RegisterRequest(BaseModel):
+    """User registration payload for email/password signup."""
+
     email: str
     password: str = Field(min_length=8, max_length=200)
     full_name: str | None = Field(default=None, max_length=120)
@@ -31,6 +37,8 @@ class RegisterRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
+    """User login payload for email/password authentication."""
+
     email: str
     password: str = Field(min_length=1, max_length=200)
 
@@ -48,6 +56,8 @@ class LoginRequest(BaseModel):
 
 
 class AuthResponse(BaseModel):
+    """Authentication response containing bearer token and user profile."""
+
     access_token: str
     token_type: str = "bearer"
     user: UserPublic

@@ -16,6 +16,7 @@ _key_lock = asyncio.Lock()
 
 
 def _prune_expired(now: float) -> None:
+    """Delete expired run keys from the in-memory store using TTL policy."""
     expired_run_ids = [
         run_id
         for run_id, (_, inserted_at) in _key_store.items()

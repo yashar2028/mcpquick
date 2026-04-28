@@ -20,8 +20,11 @@ class RunFailureDiagnostics:
 
 
 def _build_error_summary(error_text: str) -> str:
+    """Build a concise user-facing summary from raw runtime error text."""
     lowered = error_text.lower()
 
+    # Status extraction is regex-based because upstream SDK and HTTP errors are
+    # not uniform across providers and transports.
     status_match = re.search(r"status\s+(\d{3})", lowered)
     status_code = status_match.group(1) if status_match else None
 
@@ -45,6 +48,7 @@ def _build_error_summary(error_text: str) -> str:
 
 
 def _build_next_action(error_text: str) -> str:
+    """Suggest one concrete next action based on the detected failure pattern."""
     lowered = error_text.lower()
 
     if "status 401" in lowered:

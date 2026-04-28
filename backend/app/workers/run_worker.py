@@ -46,7 +46,11 @@ async def _add_event(
     payload: dict,
     step_index: int | None = None,
 ) -> None:
-    """Append a timeline event to the run aggregate before commit."""
+    """Append a timeline event to the run aggregate before commit.
+
+    `step_index` is optional because some events are run-level (allocation,
+    key loading, failures) rather than step-scoped model execution events.
+    """
     session.add(
         RunEvent(
             run_id=run.id,
@@ -113,7 +117,8 @@ async def process_run(run_id: str) -> None:
             provider_api_key = await pop_run_api_key(run.id)
             if not provider_api_key:
                 raise RuntimeError(
-                    "Session API key was missing. Re-submit this run with a provider key."
+                    "Run API key was missing from the in-memory session store. "
+                    "Re-submit this run with a provider key."
                 )
 
             await _add_event(

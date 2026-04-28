@@ -4,6 +4,11 @@ from typing import Mapping
 
 
 def _provider_token_rates(provider: str, model: str) -> tuple[float, float]:
+    """Return estimated (input_rate, output_rate) in USD per token.
+
+    Rates are intentionally coarse and deterministic to keep evaluation stable
+    without depending on provider-side billing APIs.
+    """
     provider_key = provider.strip().lower()
     model_key = model.strip().lower()
 
@@ -26,6 +31,7 @@ def _provider_token_rates(provider: str, model: str) -> tuple[float, float]:
 
 
 def _clamp_metric(value: float) -> float:
+    """Clamp metric value into inclusive [0.0, 1.0] range."""
     if value < 0.0:
         return 0.0
     if value > 1.0:
@@ -36,6 +42,7 @@ def _clamp_metric(value: float) -> float:
 def estimate_token_cost_usd(
     provider: str, model: str, token_input: int, token_output: int
 ) -> float:
+    """Estimate run token cost using static provider/model pricing heuristics."""
     input_rate, output_rate = _provider_token_rates(provider, model)
     total = max(token_input, 0) * input_rate + max(token_output, 0) * output_rate
     return round(total, 6)
@@ -44,6 +51,7 @@ def estimate_token_cost_usd(
 def compute_weighted_score(
     metrics: Mapping[str, float], weights: Mapping[str, float]
 ) -> tuple[float, dict[str, float]]:
+    """Normalize weights and compute deterministic weighted metric score."""
     if not weights:
         raise ValueError("weights must not be empty")
 

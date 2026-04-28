@@ -73,35 +73,8 @@ class NixSandboxRunner:
             encoding="utf-8",
         )
 
-        command_prefix = [
-            token for token in self._config.command_prefix.split() if token
-        ]
-        nix_command = [
-            *command_prefix,
-            self._config.nix_binary,
-            "--extra-experimental-features",
-            "nix-command flakes",
-            "develop",
-            self._config.nix_flake_ref,
-            "--command",
-            "python",
-            "-m",
-            self._config.runtime_module,
-            "--request",
-            str(request_file),
-            "--output",
-            str(result_file),
-        ]
-
-        local_command = [
-            self._config.local_python_binary,
-            "-m",
-            self._config.runtime_module,
-            "--request",
-            str(request_file),
-            "--output",
-            str(result_file),
-        ]
+        nix_command = self._build_nix_command(request_file, result_file)
+        local_command = self._build_local_command(request_file, result_file)
 
         fallback_used = False
         fallback_note = ""
@@ -184,9 +157,43 @@ class NixSandboxRunner:
             stderr=asyncio.subprocess.PIPE,
         )
 
+    def _build_nix_command(self, request_file: Path, result_file: Path) -> list[str]:
+        """Build the primary nix command used for sandbox process execution."""
+        command_prefix = [
+            token for token in self._config.command_prefix.split() if token
+        ]
+        return [
+            *command_prefix,
+            self._config.nix_binary,
+            "--extra-experimental-features",
+            "nix-command flakes",
+            "develop",
+            self._config.nix_flake_ref,
+            "--command",
+            "python",
+            "-m",
+            self._config.runtime_module,
+            "--request",
+            str(request_file),
+            "--output",
+            str(result_file),
+        ]
+
+    def _build_local_command(self, request_file: Path, result_file: Path) -> list[str]:
+        """Build local fallback command used when nix launcher is unavailable."""
+        return [
+            self._config.local_python_binary,
+            "-m",
+            self._config.runtime_module,
+            "--request",
+            str(request_file),
+            "--output",
+            str(result_file),
+        ]
+
 
 def _trim(value: str) -> str:
-    """Trim long stderr/stdout output for safe exception messages."""
+    """Trim long stderr/stdout output for safe exception messages and events."""
     if len(value) <= MAX_LOG_CHARS:
         return value
     return value[:MAX_LOG_CHARS] + "..."

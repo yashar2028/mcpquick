@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Dashboard endpoints exposing user-scoped run aggregates."""
+
 from datetime import datetime
 
 from fastapi import APIRouter, Depends
@@ -24,6 +26,7 @@ async def dashboard_summary(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """Return aggregate metrics used by the frontend dashboard view."""
     total_runs = int(
         (
             await db.execute(

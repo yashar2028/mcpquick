@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Authentication endpoints for registration, login, and current-user lookup."""
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +16,7 @@ router = APIRouter(prefix="/v1/auth", tags=["auth"])
 
 
 def _to_user_public(user: User) -> UserPublic:
+    """Map ORM user entity to public API-safe schema."""
     return UserPublic(
         id=user.id,
         email=user.email,
@@ -26,6 +29,7 @@ def _to_user_public(user: User) -> UserPublic:
     "/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED
 )
 async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db)):
+    """Register a new user and return an access token plus profile payload."""
     normalized_email = payload.email.strip().lower()
 
     existing = await db.execute(select(User.id).where(User.email == normalized_email))
@@ -50,6 +54,7 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
 
 @router.post("/login", response_model=AuthResponse)
 async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
+    """Authenticate with email/password and return a signed bearer token."""
     normalized_email = payload.email.strip().lower()
     result = await db.execute(select(User).where(User.email == normalized_email))
     user = result.scalar_one_or_none()
@@ -66,4 +71,5 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
 
 @router.get("/me", response_model=UserPublic)
 async def me(current_user: User = Depends(get_current_user)):
+    """Return the authenticated user profile."""
     return _to_user_public(current_user)

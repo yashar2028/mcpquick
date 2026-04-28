@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Password hashing and lightweight JWT-like token helpers."""
+
 import base64
 import hashlib
 import hmac
@@ -20,15 +22,18 @@ class TokenError(ValueError):
 
 
 def _b64url_encode(data: bytes) -> str:
+    """Encode bytes into URL-safe base64 without padding."""
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
 
 def _b64url_decode(data: str) -> bytes:
+    """Decode URL-safe base64 text with optional missing padding."""
     padding = "=" * (-len(data) % 4)
     return base64.urlsafe_b64decode((data + padding).encode("ascii"))
 
 
 def hash_password(password: str) -> str:
+    """Hash password with PBKDF2-SHA256 and embedded salt/iteration metadata."""
     salt = secrets.token_bytes(PASSWORD_SALT_BYTES)
     digest = hashlib.pbkdf2_hmac(
         "sha256", password.encode("utf-8"), salt, PASSWORD_ITERATIONS
@@ -40,6 +45,7 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(password: str, password_hash: str) -> bool:
+    """Verify password against stored PBKDF2 hash string format."""
     try:
         algorithm, iterations_text, salt_text, digest_text = password_hash.split("$")
         if algorithm != PASSWORD_ALGORITHM:
@@ -57,6 +63,7 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 
 def create_access_token(user_id: str, email: str) -> str:
+    """Create signed bearer token containing subject/email and expiry claims."""
     header = {"alg": "HS256", "typ": "JWT"}
     now = int(time.time())
     payload = {
@@ -80,6 +87,7 @@ def create_access_token(user_id: str, email: str) -> str:
 
 
 def decode_access_token(token: str) -> dict[str, Any]:
+    """Validate signature/claims and return decoded token payload."""
     try:
         header_segment, payload_segment, signature_segment = token.split(".")
     except ValueError as exc:

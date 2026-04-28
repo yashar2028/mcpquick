@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Pydantic schemas for run creation, querying, logs, and reports."""
+
 from datetime import datetime
 from typing import Any
 
@@ -7,6 +9,8 @@ from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 
 class RunCreateRequest(BaseModel):
+    """Request payload used to queue a new evaluation run."""
+
     prompt: str = Field(min_length=1, max_length=20000)
     provider: str = Field(default="anthropic", min_length=1, max_length=64)
     model: str = Field(default="claude-3-5-sonnet-latest", min_length=1, max_length=128)
@@ -32,10 +36,14 @@ class RunCreateRequest(BaseModel):
 
 
 class RunRetryRequest(BaseModel):
+    """Request payload used to retry an existing run with a fresh API key."""
+
     api_key: str = Field(min_length=1, max_length=500)
 
 
 class RunDetailResponse(BaseModel):
+    """Detailed run view returned by create/list/get APIs."""
+
     id: str
     provider: str
     model: str
@@ -65,6 +73,8 @@ class RunDetailResponse(BaseModel):
 
 
 class RunEventResponse(BaseModel):
+    """Serialized timeline event row for run history UI."""
+
     id: str
     run_id: str
     event_type: str
@@ -75,12 +85,16 @@ class RunEventResponse(BaseModel):
 
 
 class RunLogsResponse(BaseModel):
+    """Tail view of sandbox stdout/stderr logs for one run."""
+
     run_id: str
     stdout_tail: str | None
     stderr_tail: str | None
 
 
 class RunReportResponse(BaseModel):
+    """Final scorecard payload for completed runs."""
+
     run_id: str
     status: str
     total_score: float
@@ -91,5 +105,7 @@ class RunReportResponse(BaseModel):
 
 
 class RunListResponse(BaseModel):
+    """Paginated run collection response."""
+
     items: list[RunDetailResponse]
     total: int

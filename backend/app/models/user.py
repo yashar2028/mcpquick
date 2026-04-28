@@ -14,6 +14,8 @@ if TYPE_CHECKING:
 
 
 class User(Base):
+    """Application user owning evaluation runs and authentication identity."""
+
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(

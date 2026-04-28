@@ -19,7 +19,12 @@ PROVIDER_API_KEY_ENV: Final[str] = "SANDBOX_PROVIDER_API_KEY"
 
 
 def main() -> int:
-    """CLI entrypoint used by Nix runner command."""
+    """Execute one sandbox request file and emit a validated result payload.
+
+    This function is intentionally small because it runs inside the isolated
+    sandbox process boundary. Control-plane orchestration and persistence are
+    handled outside this runtime.
+    """
     parser = argparse.ArgumentParser(description="Run sandbox task in Nix boundary")
     parser.add_argument("--request", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)

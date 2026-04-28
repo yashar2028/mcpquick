@@ -68,6 +68,7 @@ def normalize_provider(provider: str) -> str:
 
 
 def _safe_int(value: object, fallback: int) -> int:
+    """Coerce value to int, returning fallback for unsupported/boolean types."""
     if isinstance(value, bool):
         return fallback
     if isinstance(value, int):
@@ -78,10 +79,12 @@ def _safe_int(value: object, fallback: int) -> int:
 
 
 def _estimate_tokens(text: str) -> int:
+    """Estimate token count from character count using a coarse divisor."""
     return max(1, len(text) // TOKEN_ESTIMATE_DIVISOR)
 
 
 def _normalize_output_text(value: object) -> str:
+    """Normalize provider output into a non-empty printable string."""
     if isinstance(value, str):
         normalized = value.strip()
         return normalized or "(empty response)"
@@ -92,6 +95,7 @@ def _normalize_output_text(value: object) -> str:
 
 
 def _blocks_to_text(blocks: object) -> str:
+    """Flatten Anthropic-style text blocks into one normalized string."""
     if not isinstance(blocks, list):
         return "(empty response)"
 
@@ -114,6 +118,7 @@ def _blocks_to_text(blocks: object) -> str:
 
 
 def _openai_message_content_to_text(content: object) -> str:
+    """Normalize OpenAI message content variants into plain text."""
     if isinstance(content, str):
         return _normalize_output_text(content)
     if not isinstance(content, list):
@@ -131,6 +136,7 @@ def _openai_message_content_to_text(content: object) -> str:
 
 
 def _gemini_response_to_text(response: dict[str, object]) -> str:
+    """Extract the first candidate text payload from Gemini HTTP response."""
     candidates = response.get("candidates")
     if not isinstance(candidates, list) or not candidates:
         raise RuntimeError("gemini response did not contain candidates")
@@ -158,6 +164,7 @@ def _build_result(
     token_output: object,
     latency_ms: object,
 ) -> ProviderCallResult:
+    """Build a normalized provider result with safe fallback token estimates."""
     normalized_output = _normalize_output_text(output_text)
     fallback_input = _estimate_tokens(prompt)
     fallback_output = _estimate_tokens(normalized_output)
@@ -200,6 +207,7 @@ def _error_status_code(exc: Exception) -> int | None:
 
 
 def _ensure_model(model: str, provider: str) -> str:
+    """Return explicit model name or first recommended default for provider."""
     model_name = model.strip()
     if model_name:
         return model_name
@@ -211,6 +219,7 @@ def _ensure_model(model: str, provider: str) -> str:
 
 
 def _strip_model_prefix(model_name: str) -> str:
+    """Strip leading `models/` prefix used by some Gemini API payloads."""
     if model_name.startswith("models/"):
         return model_name[7:]
     return model_name
@@ -349,6 +358,7 @@ def _call_anthropic(prompt: str, model: str, api_key: str) -> ProviderCallResult
 
 
 def _list_gemini_models(api_key: str) -> list[str]:
+    """List Gemini models that support generateContent for the current API key."""
     parsed = get_json(
         url="https://generativelanguage.googleapis.com/v1beta/models",
         headers={"x-goog-api-key": api_key},
@@ -379,6 +389,7 @@ def _list_gemini_models(api_key: str) -> list[str]:
 
 
 def _pick_gemini_fallback_model(models: list[str]) -> str | None:
+    """Choose a reasonable Gemini fallback model, preferring flash variants."""
     if not models:
         return None
 
@@ -396,10 +407,9 @@ def _call_gemini(prompt: str, model: str, api_key: str) -> ProviderCallResult:
     try:
         import google.generativeai as genai
 
-        sdk_model = model_name if model_name.startswith("models/") else model_name
         started = time.perf_counter()
         genai.configure(api_key=api_key)
-        model_client = genai.GenerativeModel(model_name=sdk_model)
+        model_client = genai.GenerativeModel(model_name=model_name)
         response = model_client.generate_content(
             prompt,
             generation_config={
@@ -442,6 +452,8 @@ def _call_gemini(prompt: str, model: str, api_key: str) -> ProviderCallResult:
         if exc.status_code != 404:
             raise
 
+        # Requested model was not found for this account. Discover available
+        # generateContent models and retry with a conservative fallback.
         fallback_model = _pick_gemini_fallback_model(_list_gemini_models(api_key))
         if fallback_model is None:
             raise RuntimeError(
