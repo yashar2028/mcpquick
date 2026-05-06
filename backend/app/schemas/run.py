@@ -8,6 +8,13 @@ from typing import Any
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 
+class McpRepoRequest(BaseModel):
+    repo_url: HttpUrl
+    server_path: str = Field(default="server.json", min_length=1, max_length=240)
+    env: dict[str, str] = Field(default_factory=dict)
+    headers: dict[str, str] = Field(default_factory=dict)
+
+
 class RunCreateRequest(BaseModel):
     """Request payload used to queue a new evaluation run."""
 
@@ -19,6 +26,11 @@ class RunCreateRequest(BaseModel):
 
     enable_external_mcp: bool = Field(default=False)
     external_mcp_url: HttpUrl | None = None
+    mcp_repos: list[McpRepoRequest] = Field(default_factory=list)
+    mcp_server_path: str = Field(default="server.json", min_length=1, max_length=240)
+    mcp_env: dict[str, str] = Field(default_factory=dict)
+    mcp_headers: dict[str, str] = Field(default_factory=dict)
+    mcp_failure_policy: str = Field(default="fail", min_length=1, max_length=20)
 
     @field_validator("provider")
     @classmethod
@@ -33,6 +45,14 @@ class RunCreateRequest(BaseModel):
         raise ValueError(
             "provider must be one of: openai, anthropic, claude, google, gemini"
         )
+
+    @field_validator("mcp_failure_policy")
+    @classmethod
+    def validate_failure_policy(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"fail", "continue"}:
+            raise ValueError("mcp_failure_policy must be 'fail' or 'continue'")
+        return normalized
 
 
 class RunRetryRequest(BaseModel):
@@ -54,6 +74,7 @@ class RunDetailResponse(BaseModel):
 
     requested_external_mcp_url: str | None
     external_mcp_enabled: bool
+    mcp_config: dict[str, Any] | None
 
     step_count: int
     token_input: int

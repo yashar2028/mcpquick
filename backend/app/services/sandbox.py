@@ -22,6 +22,7 @@ class SandboxRunRequest:
     api_key: str
     max_steps: int
     external_mcp_url: str | None
+    mcp_config: dict[str, object] | None
 
 
 @dataclass(slots=True)
@@ -71,6 +72,7 @@ class NixSandboxAdapter:
                 model=request.model,
                 max_steps=request.max_steps,
                 external_mcp_url=request.external_mcp_url,
+                mcp_config=request.mcp_config,
             ),
             provider_api_key=request.api_key,
         )

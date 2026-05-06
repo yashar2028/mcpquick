@@ -10,7 +10,9 @@ This module exposes the public HTTP surface used by the frontend to:
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, time
+import ipaddress
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import desc, func, select
@@ -83,6 +85,32 @@ def _build_created_before_datetime(raw_date: date | None) -> datetime | None:
     return datetime.combine(raw_date, time.max, tzinfo=UTC)
 
 
+def _validate_mcp_repo_url(raw_url: str) -> None:
+    parsed = urlparse(raw_url)
+    if parsed.scheme != "https":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="MCP repo URL must use https",
+        )
+
+    hostname = parsed.hostname or ""
+    if hostname in {"localhost", "127.0.0.1", "::1"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="MCP repo URL must be a public host",
+        )
+
+    try:
+        ip = ipaddress.ip_address(hostname)
+        if ip.is_private or ip.is_loopback or ip.is_link_local:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="MCP repo URL must be a public host",
+            )
+    except ValueError:
+        pass
+
+
 @router.post("", response_model=RunDetailResponse, status_code=status.HTTP_202_ACCEPTED)
 async def create_run(
     payload: RunCreateRequest,
@@ -90,17 +118,50 @@ async def create_run(
     current_user: User = Depends(get_current_user),
 ):
     """Create a run record and enqueue asynchronous sandbox execution."""
-    if payload.enable_external_mcp and not payload.external_mcp_url:
+    if payload.enable_external_mcp and payload.provider != "anthropic":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="external_mcp_url is required when enable_external_mcp is true",
+            detail="MCP tool calling is only supported for Anthropic currently.",
         )
+    mcp_repo_items: list[dict[str, object]] = []
+    if payload.enable_external_mcp:
+        if payload.mcp_repos:
+            for repo in payload.mcp_repos:
+                repo_url = str(repo.repo_url)
+                _validate_mcp_repo_url(repo_url)
+                mcp_repo_items.append(
+                    {
+                        "repo_url": repo_url,
+                        "server_path": repo.server_path,
+                        "env": repo.env,
+                        "headers": repo.headers,
+                    }
+                )
+        elif payload.external_mcp_url:
+            repo_url = str(payload.external_mcp_url)
+            _validate_mcp_repo_url(repo_url)
+            mcp_repo_items.append(
+                {
+                    "repo_url": repo_url,
+                    "server_path": payload.mcp_server_path,
+                    "env": payload.mcp_env,
+                    "headers": payload.mcp_headers,
+                }
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="At least one MCP repo is required when enable_external_mcp is true",
+            )
 
-    if payload.enable_external_mcp and not settings.ENABLE_GITHUB_MCP_INGESTION:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="External GitHub MCP ingestion is disabled in v1.",
-        )
+    mcp_config = None
+    if payload.enable_external_mcp:
+        mcp_config = {
+            "repos": mcp_repo_items,
+            "failure_policy": payload.mcp_failure_policy,
+        }
+
+    mcp_repo_url = mcp_repo_items[0]["repo_url"] if mcp_repo_items else None
 
     run = EvaluationRun(
         user_id=current_user.id,
@@ -110,10 +171,9 @@ async def create_run(
         status=RunStatus.QUEUED,
         max_steps=payload.max_steps,
         api_key_provided=bool(payload.api_key),
-        requested_external_mcp_url=(
-            str(payload.external_mcp_url) if payload.external_mcp_url else None
-        ),
+        requested_external_mcp_url=str(mcp_repo_url) if mcp_repo_url else None,
         external_mcp_enabled=payload.enable_external_mcp,
+        mcp_config=mcp_config,
         sandbox_profile=settings.SANDBOX_PROFILE,
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
@@ -310,6 +370,7 @@ async def retry_run(
         api_key_provided=bool(payload.api_key),
         requested_external_mcp_url=previous_run.requested_external_mcp_url,
         external_mcp_enabled=previous_run.external_mcp_enabled,
+        mcp_config=previous_run.mcp_config,
         sandbox_profile=previous_run.sandbox_profile,
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),

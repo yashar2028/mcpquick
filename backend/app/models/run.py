@@ -66,6 +66,7 @@ class EvaluationRun(Base):
 
     requested_external_mcp_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     external_mcp_enabled: Mapped[bool] = mapped_column(nullable=False, default=False)
+    mcp_config: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     sandbox_profile: Mapped[str] = mapped_column(
         String(128), nullable=False, default="nix-sandbox-v1"
     )

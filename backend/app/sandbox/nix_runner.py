@@ -68,7 +68,7 @@ class NixSandboxRunner:
         stdout_file = run_dir / "stdout.log"
         stderr_file = run_dir / "stderr.log"
 
-        request_file.write_text(
+        request_file.write_text(  # in _build_nix_command / _build_local_command is passed to execution command
             json.dumps(request.to_dict(), ensure_ascii=True, indent=2),
             encoding="utf-8",
         )
@@ -162,7 +162,7 @@ class NixSandboxRunner:
         command_prefix = [
             token for token in self._config.command_prefix.split() if token
         ]
-        return [
+        return [  # Initiate into the nix sandbox and execute the python runtime module (runtime_entry.py)
             *command_prefix,
             self._config.nix_binary,
             "--extra-experimental-features",
@@ -173,7 +173,7 @@ class NixSandboxRunner:
             "python",
             "-m",
             self._config.runtime_module,
-            "--request",
+            "--request",  # --request and --output arguments are parsed at runtime_entry as well
             str(request_file),
             "--output",
             str(result_file),

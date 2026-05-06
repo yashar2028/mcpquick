@@ -92,16 +92,35 @@ async def process_run(run_id: str) -> None:
                 },
             )
 
-            if (
-                run.requested_external_mcp_url
-                and not settings.ENABLE_GITHUB_MCP_INGESTION
-            ):
+            mcp_repos = []
+            if isinstance(run.mcp_config, dict):
+                repos_raw = run.mcp_config.get("repos")
+                if isinstance(repos_raw, list):
+                    mcp_repos = [
+                        repo
+                        for repo in repos_raw
+                        if isinstance(repo, dict) and repo.get("repo_url")
+                    ]
+
+            if run.requested_external_mcp_url or mcp_repos:
                 await _add_event(
                     session,
                     run,
-                    event_type="external_mcp_disabled",
-                    message="External MCP URL was provided but GitHub MCP ingestion is disabled in v1.",
-                    payload={"url": run.requested_external_mcp_url},
+                    event_type="mcp_repo_configured",
+                    message="MCP repo configuration recorded for sandbox tool execution.",
+                    payload={
+                        "repo_urls": [
+                            repo.get("repo_url")
+                            for repo in mcp_repos
+                            if isinstance(repo, dict)
+                        ]
+                        or (
+                            [run.requested_external_mcp_url]
+                            if run.requested_external_mcp_url
+                            else []
+                        ),
+                        "config": run.mcp_config or {},
+                    },
                 )
 
             await asyncio.sleep(0.2)
@@ -114,7 +133,9 @@ async def process_run(run_id: str) -> None:
                 step_index=1,
             )
 
-            provider_api_key = await pop_run_api_key(run.id)
+            provider_api_key = await pop_run_api_key(
+                run.id
+            )  # Pop the key from memory and return
             if not provider_api_key:
                 raise RuntimeError(
                     "Run API key was missing from the in-memory session store. "
@@ -140,6 +161,7 @@ async def process_run(run_id: str) -> None:
                     api_key=provider_api_key,
                     max_steps=run.max_steps,
                     external_mcp_url=run.requested_external_mcp_url,
+                    mcp_config=run.mcp_config,
                 )
             )
             metrics = sandbox_result.metrics

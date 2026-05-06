@@ -16,6 +16,7 @@ class SandboxExecutionRequest:
     model: str
     max_steps: int
     external_mcp_url: str | None
+    mcp_config: dict[str, Any] | None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert request model to JSON-serializable mapping."""
@@ -54,6 +55,14 @@ def parse_execution_request(data: Mapping[str, Any]) -> SandboxExecutionRequest:
     else:
         raise ValueError("external_mcp_url must be a string or null")
 
+    mcp_config_raw = data.get("mcp_config")
+    if mcp_config_raw is None:
+        mcp_config = None
+    elif isinstance(mcp_config_raw, Mapping):
+        mcp_config = dict(mcp_config_raw)
+    else:
+        raise ValueError("mcp_config must be an object or null")
+
     return SandboxExecutionRequest(
         run_id=run_id,
         prompt=prompt,
@@ -61,6 +70,7 @@ def parse_execution_request(data: Mapping[str, Any]) -> SandboxExecutionRequest:
         model=model,
         max_steps=max_steps,
         external_mcp_url=external_mcp_url,
+        mcp_config=mcp_config,
     )
 
 

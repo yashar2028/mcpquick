@@ -18,6 +18,7 @@ def to_run_detail(run: EvaluationRun) -> RunDetailResponse:
         sandbox_profile=run.sandbox_profile,
         requested_external_mcp_url=run.requested_external_mcp_url,
         external_mcp_enabled=run.external_mcp_enabled,
+        mcp_config=run.mcp_config,
         step_count=run.step_count,
         token_input=run.token_input,
         token_output=run.token_output,
