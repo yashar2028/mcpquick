@@ -1,5 +1,18 @@
-export const API_BASE_URL =
-  import.meta.env.VITE_API_URL || "http://localhost:8000";
+const runtimeApiUrl = (() => {
+  if (typeof window === "undefined") return null;
+  const { hostname, protocol } = window.location;
+  // Codespaces: swap -5173 for -8000 in the hostname
+  if (hostname.includes("-5173.")) {
+    return `${protocol}//${hostname.replace("-5173.", "-8000.")}`;
+  }
+  // Localhost dev
+  if (hostname === "localhost" || hostname === "127.0.0.1") {
+    return "http://localhost:8000";
+  }
+  return `${protocol}//${hostname}:8000`;
+})();
+
+export const API_BASE_URL = runtimeApiUrl
 
 export const AUTH_STORAGE_KEY = "mcpquick_auth_token";
 export const HISTORY_PAGE_SIZE = 12;
