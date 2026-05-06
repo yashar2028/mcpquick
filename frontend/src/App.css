@@ -214,6 +214,7 @@ button:disabled {
 
 .run-form input,
 .run-form textarea,
+.run-form select,
 .filters input,
 .filters select,
 .retry-box input {
@@ -224,6 +225,13 @@ button:disabled {
   padding: 0.6rem 0.7rem;
   background: #ffffff;
   font-family: inherit;
+}
+
+.hint {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--muted);
 }
 
 .run-form textarea {

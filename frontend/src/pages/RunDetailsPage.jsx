@@ -158,6 +158,40 @@ export default function RunDetailsPage() {
             </p>
             <p>Estimated Cost: ${run.estimated_cost_usd}</p>
             <p>Score: {formatScore(run.total_score)}</p>
+            {run.external_mcp_enabled ? (
+              <>
+                {(() => {
+                  const repos = Array.isArray(run.mcp_config?.repos)
+                    ? run.mcp_config.repos
+                    : run.requested_external_mcp_url
+                    ? [
+                        {
+                          repo_url: run.requested_external_mcp_url,
+                          server_path: run.mcp_config?.server_path || "server.json",
+                        },
+                      ]
+                    : [];
+
+                  return repos.length ? (
+                    <div className="stack">
+                      {repos.map((repo, index) => (
+                        <div key={`mcp-repo-${index}`}>
+                          <p>MCP Repo: {repo.repo_url}</p>
+                          <p>
+                            MCP server.json: {repo.server_path || "server.json"}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p>MCP Repo: -</p>
+                  );
+                })()}
+                <p>
+                  MCP failure policy: {run.mcp_config?.failure_policy || "fail"}
+                </p>
+              </>
+            ) : null}
             {run.status === "failed" ? (
               <p className="status-error">
                 Failure Reason: {run.error_message || "Unknown error"}
