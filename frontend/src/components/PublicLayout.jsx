@@ -23,68 +23,78 @@ export default function PublicLayout() {
   const { user } = useAuth();
   const location = useLocation();
   const pageTitle = getPublicTitle(location.pathname);
+  const showIntro = location.pathname !== "/";
 
   return (
-    <div className="app-shell public-shell">
-      <aside className="app-sidebar">
+    <div className="public-shell">
+      <header className="site-header">
         <div className="brand">
           <div className="brand-mark">M</div>
           <div>
             <p className="brand-name">MCP Quick</p>
-            <span className="brand-subtitle">Public guide</span>
+            <span className="brand-subtitle">Sandboxed agent runs</span>
           </div>
         </div>
 
-        <nav className="sidebar-nav">
-          <div className="nav-section">
-            <p className="nav-label">Explore</p>
-            {navLinks.map((link) => (
-              <NavLink
-                key={link.to}
-                to={link.to}
-                end={link.end}
-                className={({ isActive }) =>
-                  `nav-link${isActive ? " active" : ""}`
-                }
-              >
-                <span className="nav-icon">{link.icon}</span>
-                <span>{link.label}</span>
-              </NavLink>
-            ))}
-          </div>
+        <nav className="site-nav">
+          {navLinks.map((link) => (
+            <NavLink
+              key={link.to}
+              to={link.to}
+              end={link.end}
+              className={({ isActive }) =>
+                `site-nav-link${isActive ? " active" : ""}`
+              }
+            >
+              {link.label}
+            </NavLink>
+          ))}
         </nav>
 
-        <div className="sidebar-foot">
+        <div className="site-actions">
           <a
-            className="text-link"
+            className="ghost-link"
             href="https://registry.modelcontextprotocol.io/"
             target="_blank"
             rel="noreferrer"
           >
             MCP Registry
           </a>
+          <NavLink className="primary-link" to={user ? "/dashboard" : "/auth"}>
+            {user ? "Open console" : "Sign in"}
+          </NavLink>
         </div>
-      </aside>
+      </header>
 
-      <div className="app-main">
-        <header className="app-topbar">
+      {showIntro ? (
+        <section className="page-hero">
           <div>
-            <h1 className="topbar-title">{pageTitle}</h1>
-            <p className="topbar-sub">
-              A minimal guide to MCP-enabled evaluation workflows.
+            <p className="eyebrow">MCP Quick</p>
+            <h1>{pageTitle}</h1>
+            <p className="muted">
+              A fast path to launch, score, and compare MCP-enabled agent runs.
             </p>
           </div>
-          <div className="topbar-actions">
+          <div className="page-hero-card">
+            <p>Need access?</p>
+            <h3>Get to a run in minutes.</h3>
             <NavLink className="primary-link" to={user ? "/dashboard" : "/auth"}>
-              {user ? "Go to dashboard" : "Sign in"}
+              {user ? "Go to dashboard" : "Create an account"}
             </NavLink>
           </div>
-        </header>
+        </section>
+      ) : null}
 
+      <main className="public-main">
         <Outlet />
+      </main>
 
-        <footer className="public-footer">
-          <span>Sandboxed evals for MCP-enabled agents.</span>
+      <footer className="site-footer">
+        <div>
+          <p>Sandboxed evals for MCP-ready teams.</p>
+          <span className="muted">Built for repeatable, safe experiments.</span>
+        </div>
+        <div className="footer-links">
           <a
             className="text-link"
             href="https://registry.modelcontextprotocol.io/"
@@ -93,8 +103,11 @@ export default function PublicLayout() {
           >
             MCP Registry
           </a>
-        </footer>
-      </div>
+          <NavLink className="text-link" to="/contact">
+            Contact
+          </NavLink>
+        </div>
+      </footer>
     </div>
   );
 }

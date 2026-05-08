@@ -62,14 +62,24 @@ export default function AuthPage() {
 
   return (
     <main className="auth-shell">
-      <section className="landing-panel">
+      <section className="auth-hero">
         <p className="eyebrow">MCP Quick</p>
         <h1>Benchmark agents, track runs, and improve reliability.</h1>
         <p>
-          Sign in to manage your run history, inspect detailed traces, and monitor
-          performance trends per provider and model.
+          Sign in to manage your run history, inspect detailed traces, and
+          monitor performance trends per provider and model.
         </p>
         <div className="status-pill">Backend: {health}</div>
+        <div className="hero-metrics">
+          <div className="metric-card">
+            <span>Run visibility</span>
+            <strong>Trace, logs, scores</strong>
+          </div>
+          <div className="metric-card">
+            <span>Tool control</span>
+            <strong>MCP server configs</strong>
+          </div>
+        </div>
         <div className="inline-actions">
           <Link className="text-link" to="/">
             Read the guide

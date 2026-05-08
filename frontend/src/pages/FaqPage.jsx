@@ -1,8 +1,13 @@
 export default function FaqPage() {
   return (
-    <section className="panel">
-      <h2>FAQ</h2>
-      <div className="faq-list">
+    <section className="stack">
+      <article className="panel faq-hero">
+        <h2>FAQ</h2>
+        <p className="muted">
+          Answers to common MCP Quick workflow questions.
+        </p>
+      </article>
+      <div className="faq-grid">
         <div className="faq-item">
           <h3>Which providers are supported?</h3>
           <p>

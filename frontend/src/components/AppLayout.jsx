@@ -34,9 +34,13 @@ export default function AppLayout() {
           <div className="brand-mark">M</div>
           <div>
             <p className="brand-name">MCP Quick</p>
-            <span className="brand-subtitle">Agent runtime</span>
+            <span className="brand-subtitle">Agent console</span>
           </div>
         </div>
+
+        <NavLink className="primary-link" to="/runs/new">
+          New run
+        </NavLink>
 
         <nav className="sidebar-nav">
           <div className="nav-section">
@@ -99,6 +103,7 @@ export default function AppLayout() {
 
         <div className="sidebar-foot">
           <span className="status-pill">Backend: {health}</span>
+          <span className="muted">Status updates every 10s</span>
         </div>
       </aside>
 
@@ -119,7 +124,9 @@ export default function AppLayout() {
           </div>
         </header>
 
-        <Outlet />
+        <div className="app-content">
+          <Outlet />
+        </div>
       </div>
     </div>
   );
