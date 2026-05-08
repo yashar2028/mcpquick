@@ -1,12 +1,26 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../context/AuthContext";
 import { useBackendHealth } from "../hooks/useBackendHealth";
 
+const getRouteTitle = (path) => {
+  if (path === "/dashboard") return "Dashboard";
+  if (path === "/runs/new") return "New Run";
+  if (path === "/runs") return "Run History";
+  if (path.startsWith("/runs/")) return "Run Details";
+  if (path === "/profile") return "Profile";
+  if (path === "/resources") return "Resources";
+  return "Workspace";
+};
+
 export default function AppLayout() {
   const health = useBackendHealth();
+  const location = useLocation();
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
+  const displayName = user?.full_name || user?.email || "User";
+  const initial = displayName.trim().charAt(0).toUpperCase() || "U";
+  const routeTitle = getRouteTitle(location.pathname);
 
   const handleLogout = () => {
     signOut();
@@ -14,28 +28,99 @@ export default function AppLayout() {
   };
 
   return (
-    <main className="shell">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">MCP Quick Platform</p>
-          <h1>Welcome back, {user?.full_name || user?.email}</h1>
+    <div className="app-shell">
+      <aside className="app-sidebar">
+        <div className="brand">
+          <div className="brand-mark">M</div>
+          <div>
+            <p className="brand-name">MCP Quick</p>
+            <span className="brand-subtitle">Agent runtime</span>
+          </div>
         </div>
-        <div className="topbar-actions">
+
+        <nav className="sidebar-nav">
+          <div className="nav-section">
+            <p className="nav-label">Main</p>
+            <NavLink
+              to="/dashboard"
+              className={({ isActive }) =>
+                `nav-link${isActive ? " active" : ""}`
+              }
+            >
+              <span className="nav-icon">D</span>
+              <span>Dashboard</span>
+            </NavLink>
+          </div>
+
+          <div className="nav-section">
+            <p className="nav-label">Runs</p>
+            <NavLink
+              to="/runs/new"
+              className={({ isActive }) =>
+                `nav-link${isActive ? " active" : ""}`
+              }
+            >
+              <span className="nav-icon">N</span>
+              <span>New Run</span>
+            </NavLink>
+            <NavLink
+              to="/runs"
+              className={({ isActive }) =>
+                `nav-link${isActive ? " active" : ""}`
+              }
+            >
+              <span className="nav-icon">R</span>
+              <span>Run History</span>
+            </NavLink>
+          </div>
+
+          <div className="nav-section">
+            <p className="nav-label">Account</p>
+            <NavLink
+              to="/profile"
+              className={({ isActive }) =>
+                `nav-link${isActive ? " active" : ""}`
+              }
+            >
+              <span className="nav-icon">P</span>
+              <span>Profile</span>
+            </NavLink>
+            <NavLink
+              to="/resources"
+              className={({ isActive }) =>
+                `nav-link${isActive ? " active" : ""}`
+              }
+            >
+              <span className="nav-icon">L</span>
+              <span>Resources</span>
+            </NavLink>
+          </div>
+        </nav>
+
+        <div className="sidebar-foot">
           <span className="status-pill">Backend: {health}</span>
-          <button type="button" className="danger ghost" onClick={handleLogout}>
-            Logout
-          </button>
         </div>
-      </header>
+      </aside>
 
-      <nav className="main-nav">
-        <NavLink to="/dashboard">Dashboard</NavLink>
-        <NavLink to="/runs/new">New Run</NavLink>
-        <NavLink to="/runs">Run History</NavLink>
-        <NavLink to="/profile">Profile</NavLink>
-      </nav>
+      <div className="app-main">
+        <header className="app-topbar">
+          <div>
+            <h1 className="topbar-title">{routeTitle}</h1>
+            <p className="topbar-sub">Welcome back, {displayName}</p>
+          </div>
+          <div className="topbar-actions">
+            <div className="user-pill">
+              <span className="user-initial">{initial}</span>
+              <span className="user-name">{displayName}</span>
+            </div>
+            <button type="button" className="danger ghost" onClick={handleLogout}>
+              Logout
+            </button>
+          </div>
+        </header>
 
-      <Outlet />
-    </main>
+        <Outlet />
+      </div>
+    </div>
   );
 }

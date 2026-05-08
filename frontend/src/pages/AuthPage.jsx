@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../context/AuthContext";
 import { useBackendHealth } from "../hooks/useBackendHealth";
@@ -70,6 +70,14 @@ export default function AuthPage() {
           performance trends per provider and model.
         </p>
         <div className="status-pill">Backend: {health}</div>
+        <div className="inline-actions">
+          <Link className="text-link" to="/">
+            Read the guide
+          </Link>
+          <Link className="text-link" to="/resources">
+            Resources
+          </Link>
+        </div>
       </section>
 
       <section className="auth-card">

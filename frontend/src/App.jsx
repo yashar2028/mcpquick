@@ -1,39 +1,36 @@
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
 
 import AppLayout from "./components/AppLayout";
+import PublicLayout from "./components/PublicLayout";
 import ProtectedRoute from "./components/ProtectedRoute";
-import { AuthProvider, useAuth } from "./context/AuthContext";
+import { AuthProvider } from "./context/AuthContext";
+import AboutPage from "./pages/AboutPage";
 import AuthPage from "./pages/AuthPage";
+import ContactPage from "./pages/ContactPage";
 import DashboardPage from "./pages/DashboardPage";
+import FaqPage from "./pages/FaqPage";
+import HomePage from "./pages/HomePage";
 import NewRunPage from "./pages/NewRunPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import ProfilePage from "./pages/ProfilePage";
+import ResourcesPage from "./pages/ResourcesPage";
 import RunDetailsPage from "./pages/RunDetailsPage";
 import RunsPage from "./pages/RunsPage";
 import "./App.css";
-
-function HomeRedirect() {
-  const { user, loading } = useAuth();
-
-  if (loading) {
-    return (
-      <main className="shell">
-        <section className="panel">
-          <h2>Loading your workspace...</h2>
-        </section>
-      </main>
-    );
-  }
-
-  return <Navigate to={user ? "/dashboard" : "/auth"} replace />;
-}
 
 export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<HomeRedirect />} />
+          <Route element={<PublicLayout />}>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/about" element={<AboutPage />} />
+            <Route path="/resources" element={<ResourcesPage />} />
+            <Route path="/faq" element={<FaqPage />} />
+            <Route path="/contact" element={<ContactPage />} />
+          </Route>
+
           <Route path="/auth" element={<AuthPage />} />
 
           <Route element={<ProtectedRoute />}>

@@ -6,9 +6,14 @@ export default function NotFoundPage() {
       <section className="panel">
         <h2>Page Not Found</h2>
         <p>The page you requested does not exist.</p>
-        <Link className="text-link" to="/dashboard">
-          Go to dashboard
-        </Link>
+        <div className="inline-actions">
+          <Link className="text-link" to="/">
+            Back to home
+          </Link>
+          <Link className="text-link" to="/resources">
+            Resources
+          </Link>
+        </div>
       </section>
     </main>
   );
