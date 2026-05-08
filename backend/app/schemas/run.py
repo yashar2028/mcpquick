@@ -20,7 +20,7 @@ class RunCreateRequest(BaseModel):
 
     prompt: str = Field(min_length=1, max_length=20000)
     provider: str = Field(default="anthropic", min_length=1, max_length=64)
-    model: str = Field(default="claude-3-5-sonnet-latest", min_length=1, max_length=128)
+    model: str = Field(default="claude-3-haiku-20240307", min_length=1, max_length=128)
     api_key: str = Field(min_length=1, max_length=500)
     max_steps: int = Field(default=20, ge=1, le=200)
 

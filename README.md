@@ -15,7 +15,7 @@ pre-commit install
 
 ### provider model guidance
 - OpenAI recommended models: `gpt-4o-mini`, `gpt-4o`
-- Anthropic recommended models: `claude-3-5-sonnet-latest`, `claude-3-5-haiku-latest`
+- Anthropic recommended models: `claude-3-haiku-20240307`, `claude-3-5-sonnet-20240620`
 - Gemini recommended models: `gemini-2.0-flash`, `gemini-1.5-flash`
 
 The runtime uses official SDKs when available and keeps an HTTP fallback path for

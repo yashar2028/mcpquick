@@ -26,13 +26,9 @@ export const PROVIDER_OPTIONS = [
 
 export const MODEL_OPTIONS = {
   anthropic: [
-    "claude-3-5-sonnet-latest",
-    "claude-3-5-haiku-latest",
-    "claude-3-opus-latest",
-    "claude-3-5-sonnet-20240620",
-    "claude-3-opus-20240229",
-    "claude-3-sonnet-20240229",
-    "claude-3-haiku-20240307",
+    "claude-sonnet-4-6",
+    "claude-haiku-4-5-20251001",
+    "claude-opus-4-7",
   ],
   openai: [
     "gpt-4o-mini",

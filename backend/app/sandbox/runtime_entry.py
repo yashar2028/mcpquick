@@ -20,6 +20,41 @@ from app.sandbox.provider_clients import call_provider
 PROVIDER_API_KEY_ENV: Final[str] = "SANDBOX_PROVIDER_API_KEY"
 
 
+def _build_mcp_repo_configs(
+    external_mcp_url: str | None,
+    mcp_config: dict[str, object] | None,
+) -> list[dict[str, object]]:
+    configs: list[dict[str, object]] = []
+    if isinstance(mcp_config, dict):
+        repos_raw = mcp_config.get("repos")
+        if isinstance(repos_raw, list):
+            for repo in repos_raw:
+                if isinstance(repo, dict) and repo.get("repo_url"):
+                    configs.append(repo)
+
+    if configs:
+        return configs
+
+    if external_mcp_url:
+        server_path = "server.json"
+        env = {}
+        headers = {}
+        if isinstance(mcp_config, dict):
+            server_path = str(mcp_config.get("server_path") or "server.json")
+            env = mcp_config.get("env", {})
+            headers = mcp_config.get("headers", {})
+        configs.append(
+            {
+                "repo_url": external_mcp_url,
+                "server_path": server_path,
+                "env": env,
+                "headers": headers,
+            }
+        )
+
+    return configs
+
+
 def main() -> int:
     """Execute one sandbox request file and emit a validated result payload.
 
@@ -41,24 +76,9 @@ def main() -> int:
         raise RuntimeError("provider API key was not provided to sandbox runtime")
 
     provider_result = None
-    mcp_repo_url = request.external_mcp_url
-    mcp_config = request.mcp_config or {}
+    mcp_config = request.mcp_config if isinstance(request.mcp_config, dict) else {}
     mcp_failure_policy = str(mcp_config.get("failure_policy", "fail")).lower()
-    mcp_repos_raw = mcp_config.get("repos") if isinstance(mcp_config, dict) else None
-    mcp_repos: list[dict[str, object]] = []
-    if isinstance(mcp_repos_raw, list):
-        for repo in mcp_repos_raw:
-            if isinstance(repo, dict):
-                mcp_repos.append(repo)
-    elif mcp_repo_url:
-        mcp_repos.append(
-            {
-                "repo_url": mcp_repo_url,
-                "server_path": mcp_config.get("server_path", "server.json"),
-                "env": mcp_config.get("env", {}),
-                "headers": mcp_config.get("headers", {}),
-            }
-        )
+    mcp_repos = _build_mcp_repo_configs(request.external_mcp_url, mcp_config)
 
     if mcp_repos:
         if request.provider != "anthropic":
@@ -72,16 +92,7 @@ def main() -> int:
                     prompt=request.prompt,
                     model=request.model,
                     api_key=provider_api_key,
-                    repo_configs=[
-                        {
-                            "repo_url": str(repo.get("repo_url")),
-                            "server_path": repo.get("server_path", "server.json"),
-                            "env": repo.get("env", {}),
-                            "headers": repo.get("headers", {}),
-                        }
-                        for repo in mcp_repos
-                        if isinstance(repo, dict) and repo.get("repo_url")
-                    ],
+                    repo_configs=mcp_repos,
                     max_steps=request.max_steps,
                     run_dir=args.request.parent,
                 )

@@ -16,9 +16,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from app.sandbox.http_client import post_json
 from app.sandbox.provider_clients import (
-    HTTP_TIMEOUT_SECONDS,
     MAX_OUTPUT_TOKENS,
     ProviderCallResult,
     _blocks_to_text,
@@ -374,31 +372,87 @@ def _tool_result_content(raw: object) -> str:
     return json.dumps(raw, ensure_ascii=True)
 
 
+def _normalize_content_blocks(content: object) -> list[dict[str, object]]:
+    if not isinstance(content, list):
+        raise RuntimeError("Anthropic response missing content blocks")
+
+    normalized: list[dict[str, object]] = []
+    for block in content:
+        if isinstance(block, dict):
+            normalized.append(block)
+            continue
+        model_dump = getattr(block, "model_dump", None)
+        if callable(model_dump):
+            dumped = model_dump()
+            if isinstance(dumped, dict):
+                normalized.append(dumped)
+                continue
+        as_dict = getattr(block, "dict", None)
+        if callable(as_dict):
+            dumped = as_dict()
+            if isinstance(dumped, dict):
+                normalized.append(dumped)
+                continue
+
+        block_type = getattr(block, "type", None)
+        if block_type == "tool_use":
+            normalized.append(
+                {
+                    "type": "tool_use",
+                    "id": getattr(block, "id", None),
+                    "name": getattr(block, "name", None),
+                    "input": getattr(block, "input", None),
+                }
+            )
+            continue
+        if block_type == "text":
+            normalized.append({"type": "text", "text": getattr(block, "text", "")})
+            continue
+
+        normalized.append({"type": "text", "text": str(block)})
+
+    return normalized
+
+
+def _ensure_anthropic_client():
+    try:
+        from anthropic import Anthropic  # type: ignore
+
+        return Anthropic
+    except ImportError:
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "anthropic",
+                "--disable-pip-version-check",
+                "--no-input",
+            ],
+            check=True,
+        )
+        from anthropic import Anthropic  # type: ignore
+
+        return Anthropic
+
+
 def _call_anthropic(
     prompt_messages: list[dict[str, object]],
     model: str,
     api_key: str,
     tool_defs: list[dict[str, object]],
-) -> dict[str, object]:
-    payload = {
-        "model": model,
-        "messages": prompt_messages,
-        "temperature": 0,
-        "max_tokens": MAX_OUTPUT_TOKENS,
-        "tools": tool_defs,
-    }
-    headers = {
-        "x-api-key": api_key,
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json",
-    }
-    response, _ = post_json(
-        url="https://api.anthropic.com/v1/messages",
-        payload=payload,
-        headers=headers,
-        timeout_seconds=HTTP_TIMEOUT_SECONDS,
+) -> list[dict[str, object]]:
+    Anthropic = _ensure_anthropic_client()
+    client = Anthropic(api_key=api_key)
+    response = client.messages.create(
+        model=model,
+        messages=prompt_messages,
+        temperature=0,
+        max_tokens=MAX_OUTPUT_TOKENS,
+        tools=tool_defs,
     )
-    return response
+    return _normalize_content_blocks(getattr(response, "content", None))
 
 
 async def run_anthropic_with_mcp(
@@ -508,10 +562,7 @@ async def run_anthropic_with_mcp(
         max_tool_calls = max(1, min(MAX_TOOL_CALLS, max_steps))
 
         for _ in range(max_tool_calls):
-            response = _call_anthropic(messages, model, api_key, tool_defs)
-            content = response.get("content")
-            if not isinstance(content, list):
-                raise RuntimeError("Anthropic response missing content blocks")
+            content = _call_anthropic(messages, model, api_key, tool_defs)
 
             tool_calls = [
                 block
@@ -557,8 +608,7 @@ async def run_anthropic_with_mcp(
                     }
                 )
 
-        response = _call_anthropic(messages, model, api_key, tool_defs)
-        content = response.get("content")
+        content = _call_anthropic(messages, model, api_key, tool_defs)
         output_text = _blocks_to_text(content) if isinstance(content, list) else ""
         latency_ms = int((time.perf_counter() - started) * 1000)
         return ProviderCallResult(

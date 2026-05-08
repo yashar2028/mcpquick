@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import subprocess
+import sys
 import time
 from typing import Final
 
@@ -43,7 +45,11 @@ PROVIDER_ALIASES: Final[dict[str, str]] = {
 
 RECOMMENDED_MODELS: Final[dict[str, list[str]]] = {
     PROVIDER_OPENAI: ["gpt-4o-mini", "gpt-4o"],
-    PROVIDER_ANTHROPIC: ["claude-3-5-sonnet-latest", "claude-3-5-haiku-latest"],
+    PROVIDER_ANTHROPIC: [
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5-20251001",
+        "claude-opus-4-7",
+    ],
     PROVIDER_GEMINI: ["gemini-2.0-flash", "gemini-1.5-flash"],
 }
 
@@ -225,6 +231,39 @@ def _strip_model_prefix(model_name: str) -> str:
     return model_name
 
 
+def _pick_anthropic_fallback_model(requested: str) -> str | None:
+    """Pick a fallback Anthropic model if the requested model is unavailable."""
+    candidates = [
+        name
+        for name in RECOMMENDED_MODELS.get(PROVIDER_ANTHROPIC, [])
+        if name != requested
+    ]
+    return candidates[0] if candidates else None
+
+
+def _ensure_anthropic_client():
+    try:
+        from anthropic import Anthropic  # type: ignore
+
+        return Anthropic
+    except ImportError:
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "anthropic",
+                "--disable-pip-version-check",
+                "--no-input",
+            ],
+            check=True,
+        )
+        from anthropic import Anthropic  # type: ignore
+
+        return Anthropic
+
+
 def _call_openai(prompt: str, model: str, api_key: str) -> ProviderCallResult:
     """Call OpenAI using SDK-first strategy with HTTP fallback."""
     model_name = _ensure_model(model, PROVIDER_OPENAI)
@@ -295,64 +334,46 @@ def _call_openai(prompt: str, model: str, api_key: str) -> ProviderCallResult:
 
 
 def _call_anthropic(prompt: str, model: str, api_key: str) -> ProviderCallResult:
-    """Call Anthropic using SDK-first strategy with HTTP fallback."""
+    """Call Anthropic using the official SDK."""
     model_name = _ensure_model(model, PROVIDER_ANTHROPIC)
+    Anthropic = _ensure_anthropic_client()
 
+    started = time.perf_counter()
+    client = Anthropic(api_key=api_key)
     try:
-        from anthropic import Anthropic
-
-        started = time.perf_counter()
-        client = Anthropic(api_key=api_key)
         response = client.messages.create(
             model=model_name,
             messages=[{"role": "user", "content": prompt}],
             temperature=0,
             max_tokens=MAX_OUTPUT_TOKENS,
         )
-        latency_ms = int((time.perf_counter() - started) * 1000)
-
-        usage = getattr(response, "usage", None)
-        return _build_result(
-            prompt=prompt,
-            output_text=_blocks_to_text(getattr(response, "content", [])),
-            token_input=getattr(usage, "input_tokens", None),
-            token_output=getattr(usage, "output_tokens", None),
-            latency_ms=latency_ms,
-        )
-    except ImportError:
-        pass
     except Exception as exc:
-        raise _runtime_error_with_status("anthropic", exc) from exc
+        if _error_status_code(exc) == 404:
+            fallback_model = _pick_anthropic_fallback_model(model_name)
+            if fallback_model:
+                try:
+                    response = client.messages.create(
+                        model=fallback_model,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0,
+                        max_tokens=MAX_OUTPUT_TOKENS,
+                    )
+                except Exception as fallback_exc:
+                    raise _runtime_error_with_status(
+                        "anthropic", fallback_exc
+                    ) from fallback_exc
+            else:
+                raise _runtime_error_with_status("anthropic", exc) from exc
+        else:
+            raise _runtime_error_with_status("anthropic", exc) from exc
 
-    payload = {
-        "model": model_name,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0,
-        "max_tokens": MAX_OUTPUT_TOKENS,
-    }
-    headers = {
-        "x-api-key": api_key,
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json",
-    }
-
-    response, latency_ms = post_json(
-        url="https://api.anthropic.com/v1/messages",
-        payload=payload,
-        headers=headers,
-        timeout_seconds=HTTP_TIMEOUT_SECONDS,
-    )
-
-    content_blocks = response.get("content")
-    if not isinstance(content_blocks, list):
-        raise RuntimeError("anthropic response did not contain content blocks")
-
-    usage = response.get("usage") if isinstance(response.get("usage"), dict) else {}
+    latency_ms = int((time.perf_counter() - started) * 1000)
+    usage = getattr(response, "usage", None)
     return _build_result(
         prompt=prompt,
-        output_text=_blocks_to_text(content_blocks),
-        token_input=usage.get("input_tokens"),
-        token_output=usage.get("output_tokens"),
+        output_text=_blocks_to_text(getattr(response, "content", [])),
+        token_input=getattr(usage, "input_tokens", None),
+        token_output=getattr(usage, "output_tokens", None),
         latency_ms=latency_ms,
     )
 

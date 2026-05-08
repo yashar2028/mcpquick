@@ -62,6 +62,24 @@ async def _add_event(
     )
 
 
+def _collect_mcp_repo_urls(
+    mcp_config: dict | None,
+    fallback_url: str | None,
+) -> list[str]:
+    repo_urls: list[str] = []
+    if isinstance(mcp_config, dict):
+        repos_raw = mcp_config.get("repos")
+        if isinstance(repos_raw, list):
+            for repo in repos_raw:
+                if isinstance(repo, dict) and repo.get("repo_url"):
+                    repo_urls.append(str(repo.get("repo_url")))
+
+    if not repo_urls and fallback_url:
+        repo_urls.append(fallback_url)
+
+    return repo_urls
+
+
 async def process_run(run_id: str) -> None:
     """Execute one run end-to-end and persist final status.
 
@@ -92,33 +110,18 @@ async def process_run(run_id: str) -> None:
                 },
             )
 
-            mcp_repos = []
-            if isinstance(run.mcp_config, dict):
-                repos_raw = run.mcp_config.get("repos")
-                if isinstance(repos_raw, list):
-                    mcp_repos = [
-                        repo
-                        for repo in repos_raw
-                        if isinstance(repo, dict) and repo.get("repo_url")
-                    ]
+            repo_urls = _collect_mcp_repo_urls(
+                run.mcp_config, run.requested_external_mcp_url
+            )
 
-            if run.requested_external_mcp_url or mcp_repos:
+            if repo_urls:
                 await _add_event(
                     session,
                     run,
                     event_type="mcp_repo_configured",
                     message="MCP repo configuration recorded for sandbox tool execution.",
                     payload={
-                        "repo_urls": [
-                            repo.get("repo_url")
-                            for repo in mcp_repos
-                            if isinstance(repo, dict)
-                        ]
-                        or (
-                            [run.requested_external_mcp_url]
-                            if run.requested_external_mcp_url
-                            else []
-                        ),
+                        "repo_urls": repo_urls,
                         "config": run.mcp_config or {},
                     },
                 )
