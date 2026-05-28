@@ -133,6 +133,60 @@ export default function RunDetailsPage() {
     }
   };
 
+  const parseJudgeReport = (reportValue) => {
+    const extractRaw = (value) => {
+      if (typeof value === "string") {
+        return value.trim();
+      }
+      if (value && typeof value === "object") {
+        if (typeof value.raw === "string") {
+          return value.raw.trim();
+        }
+        if (typeof value.text === "string") {
+          return value.text.trim();
+        }
+      }
+      return "";
+    };
+
+    if (!reportValue) {
+      return null;
+    }
+
+    if (reportValue && typeof reportValue === "object") {
+      const hasStructuredFields =
+        "achieved" in reportValue ||
+        "summary" in reportValue ||
+        "tools_used" in reportValue ||
+        "notes" in reportValue;
+      if (hasStructuredFields) {
+        return reportValue;
+      }
+    }
+
+    const raw = extractRaw(reportValue);
+    if (!raw) {
+      return reportValue;
+    }
+
+    const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    const candidate = fenceMatch ? fenceMatch[1] : raw;
+    const start = candidate.indexOf("{");
+    const end = candidate.lastIndexOf("}");
+    const jsonText = start >= 0 && end > start ? candidate.slice(start, end + 1) : candidate;
+
+    try {
+      const parsed = JSON.parse(jsonText);
+      if (parsed && typeof parsed === "object") {
+        return parsed;
+      }
+    } catch (err) {
+      return reportValue;
+    }
+
+    return reportValue;
+  };
+
   return (
     <section className="panel stack">
       <div className="section-header">
@@ -277,6 +331,60 @@ export default function RunDetailsPage() {
                     </li>
                   ))}
                 </ul>
+                {report.judge_report ? (
+                  <div className="stack">
+                    <h4>Judge Report</h4>
+                    {report.judge_model ? (
+                      <p>Judge model: {report.judge_model}</p>
+                    ) : null}
+                    {(() => {
+                      const judgeReport = parseJudgeReport(report.judge_report);
+                      const toolsUsed = Array.isArray(judgeReport?.tools_used)
+                        ? judgeReport.tools_used
+                        : [];
+
+                      if (
+                        judgeReport &&
+                        ("summary" in judgeReport || "achieved" in judgeReport)
+                      ) {
+                        return (
+                          <div className="stack">
+                            {typeof judgeReport.summary === "string" ? (
+                              <p>{judgeReport.summary}</p>
+                            ) : null}
+                            {typeof judgeReport.achieved === "boolean" ? (
+                              <p>
+                                Achieved: {judgeReport.achieved ? "Yes" : "No"}
+                              </p>
+                            ) : null}
+                            <div>
+                              <p>Tools used:</p>
+                              {!toolsUsed.length ? (
+                                <p>(none)</p>
+                              ) : (
+                                <ul>
+                                  {toolsUsed.map((tool, index) => (
+                                    <li key={`judge-tool-${index}`}>
+                                      {tool?.name || "(unnamed tool)"}
+                                      {tool?.input_summary
+                                        ? ` — ${tool.input_summary}`
+                                        : ""}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                            {typeof judgeReport.notes === "string" ? (
+                              <p>{judgeReport.notes}</p>
+                            ) : null}
+                          </div>
+                        );
+                      }
+
+                      return <pre>{formatPayload(report.judge_report)}</pre>;
+                    })()}
+                  </div>
+                ) : null}
               </div>
             )}
           </section>

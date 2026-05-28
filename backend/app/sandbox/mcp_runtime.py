@@ -367,9 +367,37 @@ def _estimate_tokens(text: str) -> int:
 
 
 def _tool_result_content(raw: object) -> str:
+    if raw is None:
+        return ""
     if isinstance(raw, str):
         return raw
-    return json.dumps(raw, ensure_ascii=True)
+    if isinstance(raw, bytes):
+        return raw.decode("utf-8", errors="replace")
+    if isinstance(raw, list):
+        parts = [_tool_result_content(item) for item in raw]
+        return "\n".join(part for part in parts if part)
+    if isinstance(raw, dict):
+        text = raw.get("text")
+        if isinstance(text, str):
+            return text
+        try:
+            return json.dumps(raw, ensure_ascii=True)
+        except TypeError:
+            return str(raw)
+
+    text = getattr(raw, "text", None)
+    if isinstance(text, str):
+        return text
+    model_dump = getattr(raw, "model_dump", None)
+    if callable(model_dump):
+        try:
+            dumped = model_dump()
+        except Exception:
+            dumped = None
+        if dumped is not None:
+            return _tool_result_content(dumped)
+
+    return str(raw)
 
 
 def _normalize_content_blocks(content: object) -> list[dict[str, object]]:
@@ -500,6 +528,8 @@ async def run_anthropic_with_mcp(
     tool_registry: dict[str, tuple[object, str]] = {}
     used_tool_keys: set[str] = set()
 
+    tool_trace: list[dict[str, object]] = []
+
     async with AsyncExitStack() as stack:
         sessions: list[tuple[McpServerConfig, object]] = []
         for server_config in server_configs:
@@ -578,6 +608,7 @@ async def run_anthropic_with_mcp(
                     token_input=_estimate_tokens(prompt),
                     token_output=_estimate_tokens(output_text),
                     latency_ms=latency_ms,
+                    tool_trace=tool_trace,
                 )
 
             messages.append({"role": "assistant", "content": content})
@@ -588,6 +619,13 @@ async def run_anthropic_with_mcp(
                 tool_id = tool_call.get("id")
                 if not isinstance(tool_key, str) or not tool_id:
                     raise RuntimeError("Invalid tool call shape")
+
+                tool_trace.append(
+                    {
+                        "name": tool_key,
+                        "input": tool_args or {},
+                    }
+                )
 
                 registry_entry = tool_registry.get(tool_key)
                 if not registry_entry:
@@ -616,4 +654,5 @@ async def run_anthropic_with_mcp(
             token_input=_estimate_tokens(prompt),
             token_output=_estimate_tokens(output_text),
             latency_ms=latency_ms,
+            tool_trace=tool_trace,
         )

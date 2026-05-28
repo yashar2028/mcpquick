@@ -33,6 +33,8 @@ class SandboxRunResult:
     token_input: int
     token_output: int
     latency_ms: int
+    output_text: str
+    tool_trace: list[dict[str, object]]
     metrics: dict[str, float]
 
 
@@ -82,6 +84,8 @@ class NixSandboxAdapter:
             token_input=execution_result.token_input,
             token_output=execution_result.token_output,
             latency_ms=execution_result.latency_ms,
+            output_text=execution_result.output_text,
+            tool_trace=execution_result.tool_trace,
             metrics=execution_result.metrics,
         )
 

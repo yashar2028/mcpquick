@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     SANDBOX_ALLOW_LOCAL_FALLBACK: bool = True
     SANDBOX_LOCAL_PYTHON_BINARY: str = "python"
 
+    JUDGE_ANTHROPIC_API_KEY: str
+    JUDGE_ANTHROPIC_MODEL: str = "claude-haiku-4-5-20251001"
+
     SCORE_WEIGHT_TASK_SUCCESS: float = 0.35
     SCORE_WEIGHT_TOOL_CORRECTNESS: float = 0.25
     SCORE_WEIGHT_LATENCY: float = 0.10

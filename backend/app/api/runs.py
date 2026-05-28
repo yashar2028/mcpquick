@@ -334,6 +334,8 @@ async def get_run_report(
         evaluation_summary=run.evaluation_summary or "Completed",
         metrics=metric_scores,
         recommendations=recommendations,
+        judge_report=run.judge_report,
+        judge_model=run.judge_model,
     )
 
 

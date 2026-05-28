@@ -118,6 +118,7 @@ def main() -> int:
         latency_ms=provider_result.latency_ms,
         max_steps=request.max_steps,
         has_external_mcp=bool(mcp_repos),
+        tool_trace=provider_result.tool_trace,
     )
 
     args.output.write_text(

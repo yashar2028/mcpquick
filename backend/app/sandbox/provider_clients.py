@@ -62,6 +62,7 @@ class ProviderCallResult:
     token_input: int
     token_output: int
     latency_ms: int
+    tool_trace: list[dict[str, object]]
 
 
 def normalize_provider(provider: str) -> str:
@@ -169,17 +170,20 @@ def _build_result(
     token_input: object,
     token_output: object,
     latency_ms: object,
+    tool_trace: list[dict[str, object]] | None = None,
 ) -> ProviderCallResult:
     """Build a normalized provider result with safe fallback token estimates."""
     normalized_output = _normalize_output_text(output_text)
     fallback_input = _estimate_tokens(prompt)
     fallback_output = _estimate_tokens(normalized_output)
+    normalized_trace = tool_trace or []
 
     return ProviderCallResult(
         output_text=normalized_output,
         token_input=max(_safe_int(token_input, fallback_input), 1),
         token_output=max(_safe_int(token_output, fallback_output), 1),
         latency_ms=max(_safe_int(latency_ms, 1), 1),
+        tool_trace=normalized_trace,
     )
 
 

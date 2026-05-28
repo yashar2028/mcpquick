@@ -22,6 +22,7 @@ def build_heuristic_result(
     latency_ms: int,
     max_steps: int,
     has_external_mcp: bool,
+    tool_trace: list[dict[str, object]] | None = None,
 ) -> SandboxExecutionResult:
     """Build deterministic heuristic metrics from provider call output."""
     normalized_prompt_len = max(1, len(prompt))
@@ -52,6 +53,8 @@ def build_heuristic_result(
         token_input=token_input,
         token_output=token_output,
         latency_ms=latency_ms,
+        output_text=output_text,
+        tool_trace=tool_trace or [],
         metrics={
             "task_success": task_success,
             "tool_correctness": tool_correctness,

@@ -74,6 +74,8 @@ class EvaluationRun(Base):
     total_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     score_breakdown: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     evaluation_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    judge_report: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    judge_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     step_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     token_input: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

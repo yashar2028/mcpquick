@@ -31,6 +31,8 @@ class SandboxExecutionResult:
     token_input: int
     token_output: int
     latency_ms: int
+    output_text: str
+    tool_trace: list[dict[str, Any]]
     metrics: dict[str, float]
 
     def to_dict(self) -> dict[str, Any]:
@@ -81,6 +83,25 @@ def parse_execution_result(data: Mapping[str, Any]) -> SandboxExecutionResult:
     token_output = _require_int(data, "token_output", minimum=0)
     latency_ms = _require_int(data, "latency_ms", minimum=0)
 
+    output_text = data.get("output_text")
+    if output_text is None:
+        output_text = ""
+    elif not isinstance(output_text, str):
+        raise ValueError("output_text must be a string")
+
+    tool_trace_raw = data.get("tool_trace")
+    tool_trace: list[dict[str, Any]] = []
+    if tool_trace_raw is None:
+        tool_trace = []
+    elif isinstance(tool_trace_raw, list):
+        for entry in tool_trace_raw:
+            if isinstance(entry, Mapping):
+                tool_trace.append(dict(entry))
+            else:
+                raise ValueError("tool_trace entries must be objects")
+    else:
+        raise ValueError("tool_trace must be a list")
+
     metrics_raw = data.get("metrics")
     if not isinstance(metrics_raw, Mapping):
         raise ValueError("metrics must be an object")
@@ -102,6 +123,8 @@ def parse_execution_result(data: Mapping[str, Any]) -> SandboxExecutionResult:
         token_input=token_input,
         token_output=token_output,
         latency_ms=latency_ms,
+        output_text=output_text,
+        tool_trace=tool_trace,
         metrics=metrics,
     )
 

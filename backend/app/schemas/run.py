@@ -123,6 +123,8 @@ class RunReportResponse(BaseModel):
     evaluation_summary: str
     metrics: dict[str, float]
     recommendations: list[str]
+    judge_report: dict[str, Any] | None = None
+    judge_model: str | None = None
 
 
 class RunListResponse(BaseModel):

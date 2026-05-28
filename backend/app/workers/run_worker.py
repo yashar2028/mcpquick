@@ -20,6 +20,7 @@ from app.core.config import settings
 from app.db.session import AsyncSessionLocal
 from app.models.run import EvaluationRun, RunEvent, RunStatus
 from app.services.api_keys import pop_run_api_key
+from app.services.judge import run_judge
 from app.services.run_failures import classify_run_failure
 from app.services.sandbox import SandboxRunRequest, get_sandbox_adapter
 from app.services.scoring import (
@@ -200,6 +201,44 @@ async def process_run(run_id: str) -> None:
                 "recommendations": recommendations,
             }
             run.evaluation_summary = build_heuristic_summary(total_score, metric_scores)
+
+            if settings.JUDGE_ANTHROPIC_API_KEY:
+                try:
+                    judge_report, judge_model, judge_latency_ms = run_judge(
+                        prompt=run.prompt,
+                        output_text=sandbox_result.output_text,
+                        tool_trace=sandbox_result.tool_trace,
+                        repo_urls=repo_urls,
+                    )
+                    run.judge_report = judge_report
+                    run.judge_model = judge_model
+                    await _add_event(
+                        session,
+                        run,
+                        event_type="judge_completed",
+                        message="Judge evaluation completed.",
+                        payload={
+                            "model": judge_model,
+                            "latency_ms": judge_latency_ms,
+                        },
+                    )
+                except Exception as exc:
+                    await _add_event(
+                        session,
+                        run,
+                        event_type="judge_failed",
+                        message="Judge evaluation failed; heuristic report used.",
+                        payload={"error": str(exc)[:500]},
+                    )
+            else:
+                await _add_event(
+                    session,
+                    run,
+                    event_type="judge_skipped",
+                    message="Judge evaluation skipped (no judge API key).",
+                    payload={},
+                )
+
             run.status = RunStatus.COMPLETED
             run.finished_at = datetime.now(UTC)
 
