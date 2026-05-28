@@ -21,7 +21,6 @@ export const MAX_PAYLOAD_CHARS = 1400;
 export const PROVIDER_OPTIONS = [
   { value: "anthropic", label: "Anthropic" },
   { value: "openai", label: "OpenAI" },
-  { value: "gemini", label: "Google Gemini" },
 ];
 
 export const MODEL_OPTIONS = {
@@ -38,11 +37,5 @@ export const MODEL_OPTIONS = {
     "gpt-4-turbo",
     "gpt-4",
     "gpt-3.5-turbo",
-  ],
-  gemini: [
-    "gemini-2.0-flash",
-    "gemini-1.5-flash",
-    "gemini-1.5-pro",
-    "gemini-1.0-pro",
   ],
 };

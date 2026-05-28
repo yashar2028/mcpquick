@@ -40,11 +40,7 @@ class RunCreateRequest(BaseModel):
             return "anthropic"
         if normalized in {"openai", "gpt"}:
             return "openai"
-        if normalized in {"google", "gemini"}:
-            return "gemini"
-        raise ValueError(
-            "provider must be one of: openai, anthropic, claude, google, gemini"
-        )
+        raise ValueError("provider must be one of: openai, anthropic, claude")
 
     @field_validator("mcp_failure_policy")
     @classmethod

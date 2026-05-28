@@ -22,11 +22,6 @@ def _provider_token_rates(provider: str, model: str) -> tuple[float, float]:
             return 0.00000080, 0.00000400
         return 0.00000300, 0.00001500
 
-    if provider_key in {"google", "gemini"}:
-        if "flash" in model_key:
-            return 0.00000035, 0.00000105
-        return 0.00000125, 0.00000500
-
     return 0.00000100, 0.00000300
 
 

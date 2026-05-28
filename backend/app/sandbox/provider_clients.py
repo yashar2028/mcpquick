@@ -9,7 +9,6 @@ Design goals:
 Provider identifiers accepted by `call_provider`:
 - openai
 - anthropic / claude
-- gemini / google
 """
 
 from __future__ import annotations
@@ -21,7 +20,7 @@ import sys
 import time
 from typing import Final
 
-from app.sandbox.http_client import ProviderHttpError, get_json, post_json
+from app.sandbox.http_client import post_json
 
 HTTP_TIMEOUT_SECONDS = 90
 MAX_OUTPUT_TOKENS = 512
@@ -29,9 +28,8 @@ TOKEN_ESTIMATE_DIVISOR = 4
 
 PROVIDER_OPENAI: Final[str] = "openai"
 PROVIDER_ANTHROPIC: Final[str] = "anthropic"
-PROVIDER_GEMINI: Final[str] = "gemini"
 PROVIDER_ERROR_MESSAGE: Final[str] = (
-    "unsupported provider. use 'openai', 'anthropic'/'claude', or 'google'/'gemini'."
+    "unsupported provider. use 'openai' or 'anthropic'/'claude'."
 )
 
 PROVIDER_ALIASES: Final[dict[str, str]] = {
@@ -39,8 +37,6 @@ PROVIDER_ALIASES: Final[dict[str, str]] = {
     "gpt": PROVIDER_OPENAI,
     "anthropic": PROVIDER_ANTHROPIC,
     "claude": PROVIDER_ANTHROPIC,
-    "google": PROVIDER_GEMINI,
-    "gemini": PROVIDER_GEMINI,
 }
 
 RECOMMENDED_MODELS: Final[dict[str, list[str]]] = {
@@ -50,7 +46,6 @@ RECOMMENDED_MODELS: Final[dict[str, list[str]]] = {
         "claude-haiku-4-5-20251001",
         "claude-opus-4-7",
     ],
-    PROVIDER_GEMINI: ["gemini-2.0-flash", "gemini-1.5-flash"],
 }
 
 
@@ -142,28 +137,6 @@ def _openai_message_content_to_text(content: object) -> str:
     return _normalize_output_text("\n".join(parts))
 
 
-def _gemini_response_to_text(response: dict[str, object]) -> str:
-    """Extract the first candidate text payload from Gemini HTTP response."""
-    candidates = response.get("candidates")
-    if not isinstance(candidates, list) or not candidates:
-        raise RuntimeError("gemini response did not contain candidates")
-
-    candidate0 = candidates[0] if isinstance(candidates[0], dict) else {}
-    content = candidate0.get("content") if isinstance(candidate0, dict) else {}
-    parts = content.get("parts") if isinstance(content, dict) else []
-
-    text_parts: list[str] = []
-    if isinstance(parts, list):
-        for part in parts:
-            if not isinstance(part, dict):
-                continue
-            text = part.get("text")
-            if isinstance(text, str) and text:
-                text_parts.append(text)
-
-    return _normalize_output_text("\n".join(text_parts))
-
-
 def _build_result(
     prompt: str,
     output_text: object,
@@ -226,13 +199,6 @@ def _ensure_model(model: str, provider: str) -> str:
     if defaults:
         return defaults[0]
     raise RuntimeError(f"No default model configured for provider '{provider}'")
-
-
-def _strip_model_prefix(model_name: str) -> str:
-    """Strip leading `models/` prefix used by some Gemini API payloads."""
-    if model_name.startswith("models/"):
-        return model_name[7:]
-    return model_name
 
 
 def _pick_anthropic_fallback_model(requested: str) -> str | None:
@@ -382,136 +348,10 @@ def _call_anthropic(prompt: str, model: str, api_key: str) -> ProviderCallResult
     )
 
 
-def _list_gemini_models(api_key: str) -> list[str]:
-    """List Gemini models that support generateContent for the current API key."""
-    parsed = get_json(
-        url="https://generativelanguage.googleapis.com/v1beta/models",
-        headers={"x-goog-api-key": api_key},
-        timeout_seconds=HTTP_TIMEOUT_SECONDS,
-    )
-
-    models_raw = parsed.get("models")
-    if not isinstance(models_raw, list):
-        return []
-
-    candidates: list[str] = []
-    for item in models_raw:
-        if not isinstance(item, dict):
-            continue
-
-        name = item.get("name")
-        methods = item.get("supportedGenerationMethods")
-        if not isinstance(name, str) or not name.startswith("models/"):
-            continue
-        if not isinstance(methods, list) or "generateContent" not in methods:
-            continue
-
-        model_id = name.split("/", 1)[1]
-        if "gemini" in model_id:
-            candidates.append(model_id)
-
-    return candidates
-
-
-def _pick_gemini_fallback_model(models: list[str]) -> str | None:
-    """Choose a reasonable Gemini fallback model, preferring flash variants."""
-    if not models:
-        return None
-
-    flash_models = [name for name in models if "flash" in name]
-    if flash_models:
-        return sorted(flash_models)[0]
-
-    return sorted(models)[0]
-
-
-def _call_gemini(prompt: str, model: str, api_key: str) -> ProviderCallResult:
-    """Call Gemini using SDK-first strategy with HTTP fallback."""
-    model_name = _ensure_model(model, PROVIDER_GEMINI)
-
-    try:
-        import google.generativeai as genai
-
-        started = time.perf_counter()
-        genai.configure(api_key=api_key)
-        model_client = genai.GenerativeModel(model_name=model_name)
-        response = model_client.generate_content(
-            prompt,
-            generation_config={
-                "temperature": 0,
-                "max_output_tokens": MAX_OUTPUT_TOKENS,
-            },
-        )
-        latency_ms = int((time.perf_counter() - started) * 1000)
-
-        usage = getattr(response, "usage_metadata", None)
-        return _build_result(
-            prompt=prompt,
-            output_text=getattr(response, "text", None),
-            token_input=getattr(usage, "prompt_token_count", None),
-            token_output=getattr(usage, "candidates_token_count", None),
-            latency_ms=latency_ms,
-        )
-    except ImportError:
-        pass
-    except Exception as exc:
-        if _error_status_code(exc) != 404:
-            raise _runtime_error_with_status("gemini", exc) from exc
-
-    payload = {
-        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0, "maxOutputTokens": MAX_OUTPUT_TOKENS},
-    }
-    headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
-
-    model_id = _strip_model_prefix(model_name)
-
-    try:
-        response, latency_ms = post_json(
-            url=f"https://generativelanguage.googleapis.com/v1beta/models/{model_id}:generateContent",
-            payload=payload,
-            headers=headers,
-            timeout_seconds=HTTP_TIMEOUT_SECONDS,
-        )
-    except ProviderHttpError as exc:
-        if exc.status_code != 404:
-            raise
-
-        # Requested model was not found for this account. Discover available
-        # generateContent models and retry with a conservative fallback.
-        fallback_model = _pick_gemini_fallback_model(_list_gemini_models(api_key))
-        if fallback_model is None:
-            raise RuntimeError(
-                "Gemini model was not found and no compatible generateContent model "
-                "was discovered for this API key."
-            ) from exc
-
-        response, latency_ms = post_json(
-            url=f"https://generativelanguage.googleapis.com/v1beta/models/{fallback_model}:generateContent",
-            payload=payload,
-            headers=headers,
-            timeout_seconds=HTTP_TIMEOUT_SECONDS,
-        )
-
-    usage = (
-        response.get("usageMetadata")
-        if isinstance(response.get("usageMetadata"), dict)
-        else {}
-    )
-    return _build_result(
-        prompt=prompt,
-        output_text=_gemini_response_to_text(response),
-        token_input=usage.get("promptTokenCount"),
-        token_output=usage.get("candidatesTokenCount"),
-        latency_ms=latency_ms,
-    )
-
-
 ProviderCaller = Callable[[str, str, str], ProviderCallResult]
 PROVIDER_DISPATCH: Final[dict[str, ProviderCaller]] = {
     PROVIDER_OPENAI: _call_openai,
     PROVIDER_ANTHROPIC: _call_anthropic,
-    PROVIDER_GEMINI: _call_gemini,
 }
 
 
@@ -522,7 +362,7 @@ def call_provider(
 
     Args:
         prompt: User prompt sent to provider model.
-        provider: Provider key/alias (e.g. openai, anthropic, gemini).
+        provider: Provider key/alias (e.g. openai, anthropic).
         model: Model name used for that provider.
         api_key: Session API key injected by control-plane.
     """

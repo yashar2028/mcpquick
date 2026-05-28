@@ -30,7 +30,7 @@ export default function HomePage() {
             </div>
             <div className="metric-card">
               <span>Provider coverage</span>
-              <strong>OpenAI, Anthropic, Gemini</strong>
+              <strong>OpenAI, Anthropic</strong>
             </div>
           </div>
         </div>

@@ -11,8 +11,8 @@ export default function FaqPage() {
         <div className="faq-item">
           <h3>Which providers are supported?</h3>
           <p>
-            Anthropic, OpenAI, and Gemini are available today. Provider options
-            can be selected when you create a new run.
+            Anthropic and OpenAI are available today. Provider options can be
+            selected when you create a new run.
           </p>
         </div>
         <div className="faq-item">
