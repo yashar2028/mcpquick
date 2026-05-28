@@ -24,20 +24,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    env_file:
-      - ./.env.dev
     environment:
-      DATABASE_URL: postgresql+asyncpg://user1:12345678910@db:5432/mcpquick_dev
-      SANDBOX_PROFILE: nix-sandbox-v1
-      ENABLE_GITHUB_MCP_INGESTION: "false"
-      SANDBOX_COMMAND_PREFIX: ""
-      SANDBOX_NIX_BINARY: nix
-      SANDBOX_NIX_FLAKE_REF: ./sandbox-nix#mcp-runner
-      SANDBOX_RUNTIME_MODULE: app.sandbox.runtime_entry
-      SANDBOX_TIMEOUT_SECONDS: "600"
-      SANDBOX_RUN_BASE_DIR: .sandbox_runs
-      SANDBOX_ALLOW_LOCAL_FALLBACK: "true"
-      SANDBOX_LOCAL_PYTHON_BINARY: python
+      DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql+asyncpg://user1:12345678910@db:5432/mcpquick_dev}
+      JUDGE_ANTHROPIC_API_KEY: ${JUDGE_ANTHROPIC_API_KEY}
     ports:
       - "8000:8000"
     volumes:
