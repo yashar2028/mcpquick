@@ -1,4 +1,11 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import {
+  BookOpen,
+  History,
+  LayoutDashboard,
+  PlusCircle,
+  User,
+} from "lucide-react";
 
 import { useAuth } from "../context/AuthContext";
 import { useBackendHealth } from "../hooks/useBackendHealth";
@@ -39,6 +46,7 @@ export default function AppLayout() {
         </div>
 
         <NavLink className="primary-link" to="/runs/new">
+          <PlusCircle size={16} aria-hidden />
           New run
         </NavLink>
 
@@ -51,7 +59,9 @@ export default function AppLayout() {
                 `nav-link${isActive ? " active" : ""}`
               }
             >
-              <span className="nav-icon">D</span>
+              <span className="nav-icon">
+                <LayoutDashboard size={16} aria-hidden />
+              </span>
               <span>Dashboard</span>
             </NavLink>
           </div>
@@ -64,7 +74,9 @@ export default function AppLayout() {
                 `nav-link${isActive ? " active" : ""}`
               }
             >
-              <span className="nav-icon">N</span>
+              <span className="nav-icon">
+                <PlusCircle size={16} aria-hidden />
+              </span>
               <span>New Run</span>
             </NavLink>
             <NavLink
@@ -73,7 +85,9 @@ export default function AppLayout() {
                 `nav-link${isActive ? " active" : ""}`
               }
             >
-              <span className="nav-icon">R</span>
+              <span className="nav-icon">
+                <History size={16} aria-hidden />
+              </span>
               <span>Run History</span>
             </NavLink>
           </div>
@@ -86,7 +100,9 @@ export default function AppLayout() {
                 `nav-link${isActive ? " active" : ""}`
               }
             >
-              <span className="nav-icon">P</span>
+              <span className="nav-icon">
+                <User size={16} aria-hidden />
+              </span>
               <span>Profile</span>
             </NavLink>
             <NavLink
@@ -95,7 +111,9 @@ export default function AppLayout() {
                 `nav-link${isActive ? " active" : ""}`
               }
             >
-              <span className="nav-icon">L</span>
+              <span className="nav-icon">
+                <BookOpen size={16} aria-hidden />
+              </span>
               <span>Resources</span>
             </NavLink>
           </div>

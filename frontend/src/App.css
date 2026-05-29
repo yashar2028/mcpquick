@@ -337,6 +337,11 @@ button:disabled {
   font-weight: 700;
 }
 
+.nav-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
 .sidebar-foot {
   display: grid;
   gap: 0.4rem;
@@ -448,6 +453,7 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 0.45rem;
   border: 1px solid transparent;
   border-radius: 999px;
   padding: 0.6rem 1.2rem;
