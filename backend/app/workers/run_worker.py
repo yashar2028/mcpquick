@@ -127,7 +127,6 @@ async def process_run(run_id: str) -> None:
                     },
                 )
 
-            await asyncio.sleep(0.2)
             await _add_event(
                 session,
                 run,
@@ -136,6 +135,8 @@ async def process_run(run_id: str) -> None:
                 payload={"provider": run.provider, "model": run.model},
                 step_index=1,
             )
+            run.updated_at = datetime.now(UTC)
+            await session.commit()
 
             provider_api_key = await pop_run_api_key(
                 run.id
@@ -154,7 +155,6 @@ async def process_run(run_id: str) -> None:
                 payload={"provider": run.provider, "key_present": True},
             )
 
-            await asyncio.sleep(0.2)
             sandbox_adapter = get_sandbox_adapter()
             sandbox_result = await sandbox_adapter.execute(
                 SandboxRunRequest(
