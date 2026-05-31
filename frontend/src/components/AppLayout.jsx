@@ -8,7 +8,6 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "../context/AuthContext";
-import { useBackendHealth } from "../hooks/useBackendHealth";
 
 const getRouteTitle = (path) => {
   if (path === "/dashboard") return "Dashboard";
@@ -21,7 +20,6 @@ const getRouteTitle = (path) => {
 };
 
 export default function AppLayout() {
-  const health = useBackendHealth();
   const location = useLocation();
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
@@ -119,10 +117,7 @@ export default function AppLayout() {
           </div>
         </nav>
 
-        <div className="sidebar-foot">
-          <span className="status-pill">Backend: {health}</span>
-          <span className="muted">Status updates every 10s</span>
-        </div>
+        <div className="sidebar-foot" />
       </aside>
 
       <div className="app-main">

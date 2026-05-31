@@ -1,9 +1,37 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import { getCurrentUser, loginUser, registerUser } from "../api/authApi";
 import { AUTH_STORAGE_KEY } from "../constants";
 
 const AuthContext = createContext(null);
+
+const decodeBase64Url = (value) => {
+  if (!value) {
+    return null;
+  }
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "=");
+  try {
+    return JSON.parse(window.atob(padded));
+  } catch {
+    return null;
+  }
+};
+
+const getTokenExpiry = (token) => {
+  if (!token) {
+    return null;
+  }
+  const parts = token.split(".");
+  if (parts.length !== 3) {
+    return null;
+  }
+  const payload = decodeBase64Url(parts[1]);
+  if (!payload || typeof payload.exp !== "number") {
+    return null;
+  }
+  return payload.exp * 1000;
+};
 
 export function AuthProvider({ children }) {
   const [token, setToken] = useState(
@@ -11,9 +39,21 @@ export function AuthProvider({ children }) {
   );
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(Boolean(token));
+  const logoutTimerRef = useRef(null);
 
   useEffect(() => {
     let mounted = true;
+
+    const expiresAt = getTokenExpiry(token);
+    if (token && expiresAt && expiresAt <= Date.now()) {
+      setToken("");
+      setUser(null);
+      window.localStorage.removeItem(AUTH_STORAGE_KEY);
+      setLoading(false);
+      return () => {
+        mounted = false;
+      };
+    }
 
     async function loadUser() {
       if (!token) {
@@ -46,6 +86,36 @@ export function AuthProvider({ children }) {
 
     return () => {
       mounted = false;
+    };
+  }, [token]);
+
+  useEffect(() => {
+    if (logoutTimerRef.current) {
+      window.clearTimeout(logoutTimerRef.current);
+      logoutTimerRef.current = null;
+    }
+
+    if (!token) {
+      return undefined;
+    }
+
+    const expiresAt = getTokenExpiry(token);
+    if (!expiresAt) {
+      return undefined;
+    }
+
+    const delay = Math.max(0, expiresAt - Date.now());
+    logoutTimerRef.current = window.setTimeout(() => {
+      setToken("");
+      setUser(null);
+      window.localStorage.removeItem(AUTH_STORAGE_KEY);
+    }, delay);
+
+    return () => {
+      if (logoutTimerRef.current) {
+        window.clearTimeout(logoutTimerRef.current);
+        logoutTimerRef.current = null;
+      }
     };
   }, [token]);
 
