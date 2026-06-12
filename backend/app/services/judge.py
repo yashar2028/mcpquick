@@ -1,61 +1,17 @@
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 import time
 from typing import Any
 
 from app.core.config import settings
+from app.sandbox.provider_clients import _ensure_anthropic_client
+from app.sandbox.text_blocks import blocks_to_text
 
 MAX_JUDGE_TOKENS = 800
 MAX_TOOL_INPUT_CHARS = 500
 MAX_TOOL_TRACE_ITEMS = 12
 MAX_OUTPUT_CHARS = 4000
-
-
-def _ensure_anthropic_client():
-    try:
-        from anthropic import Anthropic  # type: ignore
-
-        return Anthropic
-    except ImportError:
-        subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "pip",
-                "install",
-                "anthropic",
-                "--disable-pip-version-check",
-                "--no-input",
-            ],
-            check=True,
-        )
-        from anthropic import Anthropic  # type: ignore
-
-        return Anthropic
-
-
-def _blocks_to_text(blocks: object) -> str:
-    if not isinstance(blocks, list):
-        return ""
-
-    parts: list[str] = []
-    for block in blocks:
-        if isinstance(block, dict):
-            if block.get("type") == "text":
-                text = block.get("text")
-                if isinstance(text, str) and text:
-                    parts.append(text)
-            continue
-
-        block_type = getattr(block, "type", None)
-        block_text = getattr(block, "text", None)
-        if block_type == "text" and isinstance(block_text, str) and block_text:
-            parts.append(block_text)
-
-    return "\n".join(parts).strip()
 
 
 def _truncate_text(value: str, max_chars: int) -> str:
@@ -142,7 +98,7 @@ def run_judge(
     )
     latency_ms = int((time.perf_counter() - started) * 1000)
 
-    text = _blocks_to_text(getattr(response, "content", []))
+    text = blocks_to_text(getattr(response, "content", []), empty_value="")
     try:
         report = json.loads(text)
         if not isinstance(report, dict):

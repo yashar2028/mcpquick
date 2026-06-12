@@ -21,6 +21,7 @@ import time
 from typing import Final
 
 from app.sandbox.http_client import post_json
+from app.sandbox.text_blocks import blocks_to_text as _blocks_to_text_shared
 
 HTTP_TIMEOUT_SECONDS = 90
 MAX_OUTPUT_TOKENS = 512
@@ -98,25 +99,7 @@ def _normalize_output_text(value: object) -> str:
 
 def _blocks_to_text(blocks: object) -> str:
     """Flatten Anthropic-style text blocks into one normalized string."""
-    if not isinstance(blocks, list):
-        return "(empty response)"
-
-    parts: list[str] = []
-    for block in blocks:
-        if isinstance(block, dict):
-            if block.get("type") != "text":
-                continue
-            text = block.get("text")
-            if isinstance(text, str) and text:
-                parts.append(text)
-            continue
-
-        block_type = getattr(block, "type", None)
-        block_text = getattr(block, "text", None)
-        if block_type == "text" and isinstance(block_text, str) and block_text:
-            parts.append(block_text)
-
-    return _normalize_output_text("\n".join(parts))
+    return _blocks_to_text_shared(blocks, empty_value="(empty response)")
 
 
 def _openai_message_content_to_text(content: object) -> str:

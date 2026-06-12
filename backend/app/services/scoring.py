@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Mapping
 
+from app.utils.metrics import clamp01
+
 
 def _provider_token_rates(provider: str, model: str) -> tuple[float, float]:
     """Return estimated (input_rate, output_rate) in USD per token.
@@ -23,15 +25,6 @@ def _provider_token_rates(provider: str, model: str) -> tuple[float, float]:
         return 0.00000300, 0.00001500
 
     return 0.00000100, 0.00000300
-
-
-def _clamp_metric(value: float) -> float:
-    """Clamp metric value into inclusive [0.0, 1.0] range."""
-    if value < 0.0:
-        return 0.0
-    if value > 1.0:
-        return 1.0
-    return value
 
 
 def estimate_token_cost_usd(
@@ -62,7 +55,7 @@ def compute_weighted_score(
     per_metric_score: dict[str, float] = {}
 
     for metric_name, weight in normalized_weights.items():
-        metric_value = _clamp_metric(float(metrics.get(metric_name, 0.0)))
+        metric_value = clamp01(float(metrics.get(metric_name, 0.0)))
         per_metric_score[metric_name] = metric_value
         weighted_score += metric_value * weight
 

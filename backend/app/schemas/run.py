@@ -5,14 +5,23 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, HttpUrl, field_validator
+from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
 
 class McpRepoRequest(BaseModel):
-    repo_url: HttpUrl
+    repo_url: HttpUrl | None = None
+    server_json: dict[str, Any] | None = None
     server_path: str = Field(default="server.json", min_length=1, max_length=240)
     env: dict[str, str] = Field(default_factory=dict)
     headers: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_source(self):
+        has_repo = self.repo_url is not None
+        has_inline = self.server_json is not None
+        if has_repo == has_inline:
+            raise ValueError("Provide either repo_url or server_json for MCP entries")
+        return self
 
 
 class RunCreateRequest(BaseModel):

@@ -29,7 +29,9 @@ def _build_mcp_repo_configs(
         repos_raw = mcp_config.get("repos")
         if isinstance(repos_raw, list):
             for repo in repos_raw:
-                if isinstance(repo, dict) and repo.get("repo_url"):
+                if isinstance(repo, dict) and (
+                    repo.get("repo_url") or repo.get("server_json")
+                ):
                     configs.append(repo)
 
     if configs:

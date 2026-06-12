@@ -10,6 +10,19 @@ import re
 from dataclasses import dataclass
 
 
+STATUS_SUMMARIES: dict[str, str] = {
+    "401": "Provider authentication failed (401). Check API key validity.",
+    "403": "Provider request was forbidden (403). Check project permissions.",
+    "404": "Requested provider model was not found. Use a supported model name.",
+    "429": "Provider quota/rate limit exceeded (429). Check billing or wait and retry.",
+}
+
+STATUS_ACTIONS: dict[str, str] = {
+    "status 401": "Use a valid API key and retry the run.",
+    "status 429": "Check provider quota/billing, then retry after quota is available.",
+}
+
+
 @dataclass(frozen=True, slots=True)
 class RunFailureDiagnostics:
     """Structured failure diagnostics persisted for failed runs."""
@@ -28,16 +41,9 @@ def _build_error_summary(error_text: str) -> str:
     status_match = re.search(r"status\s+(\d{3})", lowered)
     status_code = status_match.group(1) if status_match else None
 
-    if status_code == "401":
-        return "Provider authentication failed (401). Check API key validity."
-    if status_code == "403":
-        return "Provider request was forbidden (403). Check project permissions."
-    if status_code == "404":
-        return "Requested provider model was not found. Use a supported model name."
-    if status_code == "429":
-        return (
-            "Provider quota/rate limit exceeded (429). Check billing or wait and retry."
-        )
+    summary = STATUS_SUMMARIES.get(status_code or "")
+    if summary:
+        return summary
 
     if "timed out" in lowered:
         return "Sandbox execution timed out. Increase timeout or reduce request size."
@@ -52,11 +58,11 @@ def _build_next_action(error_text: str) -> str:
     lowered = error_text.lower()
 
     if "status 401" in lowered:
-        return "Use a valid API key and retry the run."
+        return STATUS_ACTIONS["status 401"]
     if "status 404" in lowered and "model" in lowered:
         return "Switch to a model listed for your provider account and retry."
     if "status 429" in lowered:
-        return "Check provider quota/billing, then retry after quota is available."
+        return STATUS_ACTIONS["status 429"]
     if "timed out" in lowered:
         return "Increase SANDBOX_TIMEOUT_SECONDS and try a shorter prompt."
 

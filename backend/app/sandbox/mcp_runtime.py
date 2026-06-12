@@ -8,8 +8,10 @@ import ipaddress
 import json
 import os
 import shutil
+import importlib
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -193,52 +195,20 @@ def _extract_remote(payload: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
-def prepare_mcp_repo(
-    repo_url: str,
-    run_dir: Path,
-    server_path: str,
+def _build_server_config_from_payload(
+    payload: dict[str, Any],
+    repo_url: str | None,
     env_overrides: dict[str, str],
     header_overrides: dict[str, str],
-    repo_index: int,
 ) -> McpServerConfig:
-    """Clone MCP repo and read validated server.json config."""
-    if (
-        server_path.startswith("/")
-        or server_path.startswith("\\")
-        or ".." in server_path
-    ):
-        raise RuntimeError("server.json path must be a relative path")
-
-    repo_dir = run_dir / f"mcp_repo_{repo_index}_{_sanitize_repo_dir_name(repo_url)}"
-    if repo_dir.exists():
-        shutil.rmtree(repo_dir, ignore_errors=True)
-
-    subprocess.run(
-        ["git", "clone", "--depth", "1", repo_url, str(repo_dir)],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    server_json = repo_dir / server_path
-    if not server_json.exists():
-        candidates = [path for path in repo_dir.rglob("server.json") if path.is_file()]
-        if len(candidates) == 1:
-            server_json = candidates[0]
-        elif not candidates:
-            raise RuntimeError("server.json not found in MCP repo")
-        else:
-            raise RuntimeError(
-                "Multiple server.json files found; please set the server.json path explicitly."
-            )
-
-    payload = json.loads(server_json.read_text(encoding="utf-8"))
+    if isinstance(payload, dict) and isinstance(payload.get("server"), dict):
+        payload = payload["server"]
     if not isinstance(payload, dict):
         raise RuntimeError("server.json must be a JSON object")
 
     server_name = payload.get("name")
     if not isinstance(server_name, str) or not server_name:
-        server_name = _sanitize_repo_dir_name(repo_url)
+        server_name = _sanitize_repo_dir_name(repo_url or "inline")
     server_name = _sanitize_tool_name(server_name)
 
     package = _extract_stdio_package(payload)
@@ -305,61 +275,168 @@ def prepare_mcp_repo(
     )
 
 
-def _ensure_mcp_imports() -> McpClientImports:
-    try:
-        from mcp import ClientSession, StdioServerParameters  # type: ignore
-        from mcp.client.stdio import stdio_client  # type: ignore
+def prepare_mcp_repo(
+    repo_url: str,
+    run_dir: Path,
+    server_path: str,
+    env_overrides: dict[str, str],
+    header_overrides: dict[str, str],
+    repo_index: int,
+) -> McpServerConfig:
+    """Clone MCP repo and read validated server.json config."""
+    if (
+        server_path.startswith("/")
+        or server_path.startswith("\\")
+        or ".." in server_path
+    ):
+        raise RuntimeError("server.json path must be a relative path")
 
-        StreamableHttpServerParameters = None
-        streamable_http_client = None
-        try:
-            from mcp.client.streamable_http import (  # type: ignore
-                StreamableHttpServerParameters,
-                streamable_http_client,
+    repo_dir = run_dir / f"mcp_repo_{repo_index}_{_sanitize_repo_dir_name(repo_url)}"
+    if repo_dir.exists():
+        shutil.rmtree(repo_dir, ignore_errors=True)
+
+    subprocess.run(
+        ["git", "clone", "--depth", "1", repo_url, str(repo_dir)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    server_json = repo_dir / server_path
+    if not server_json.exists():
+        candidates = [path for path in repo_dir.rglob("server.json") if path.is_file()]
+        if len(candidates) == 1:
+            server_json = candidates[0]
+        elif not candidates:
+            raise RuntimeError("server.json not found in MCP repo")
+        else:
+            raise RuntimeError(
+                "Multiple server.json files found; please set the server.json path explicitly."
             )
-        except Exception:
-            pass
 
-        return McpClientImports(
-            ClientSession=ClientSession,
-            StdioServerParameters=StdioServerParameters,
-            stdio_client=stdio_client,
-            StreamableHttpServerParameters=StreamableHttpServerParameters,
-            streamable_http_client=streamable_http_client,
+    payload = json.loads(server_json.read_text(encoding="utf-8"))
+    return _build_server_config_from_payload(
+        payload=payload,
+        repo_url=repo_url,
+        env_overrides=env_overrides,
+        header_overrides=header_overrides,
+    )
+
+
+def _try_import_streamable_http():
+    try:
+        from mcp.client import streamable_http  # type: ignore
+
+        return (
+            getattr(streamable_http, "StreamableHttpServerParameters", None),
+            getattr(streamable_http, "streamable_http_client", None),
         )
     except Exception:
-        subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "pip",
-                "install",
-                "mcp",
-                "--disable-pip-version-check",
-                "--no-input",
-            ],
-            check=True,
-        )
-        from mcp import ClientSession, StdioServerParameters  # type: ignore
-        from mcp.client.stdio import stdio_client  # type: ignore
-
-        StreamableHttpServerParameters = None
-        streamable_http_client = None
         try:
-            from mcp.client.streamable_http import (  # type: ignore
-                StreamableHttpServerParameters,
-                streamable_http_client,
+            from mcp.client import streamable_http_client as streamable_http  # type: ignore
+
+            return (
+                getattr(streamable_http, "StreamableHttpServerParameters", None),
+                getattr(streamable_http, "streamable_http_client", None),
             )
         except Exception:
-            pass
+            return None, None
 
-        return McpClientImports(
-            ClientSession=ClientSession,
-            StdioServerParameters=StdioServerParameters,
-            stdio_client=stdio_client,
-            StreamableHttpServerParameters=StreamableHttpServerParameters,
-            streamable_http_client=streamable_http_client,
+
+def _install_mcp(package: str, target: Path, upgrade: bool = False) -> None:
+    args = [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+    ]
+    if upgrade:
+        args.append("--upgrade")
+    args.extend(
+        [
+            package,
+            "--target",
+            str(target),
+            "--disable-pip-version-check",
+            "--no-input",
+        ]
+    )
+    subprocess.run(
+        args,
+        check=True,
+    )
+
+
+def _resolve_pip_target() -> Path:
+    override = os.environ.get("MCP_PIP_TARGET")
+    if override:
+        return Path(override)
+    return Path(tempfile.gettempdir()) / "mcpquick_mcp_pkgs"
+
+
+def _ensure_target_on_sys_path(target: Path) -> None:
+    target_str = str(target)
+    if target_str not in sys.path:
+        sys.path.insert(0, target_str)
+
+
+def _clear_mcp_modules() -> None:
+    for name in list(sys.modules):
+        if name == "mcp" or name.startswith("mcp."):
+            del sys.modules[name]
+    importlib.invalidate_caches()
+
+
+def _install_mcp_from_git(target: Path) -> None:
+    _install_mcp(
+        "mcp @ git+https://github.com/modelcontextprotocol/python-sdk.git",
+        target=target,
+        upgrade=True,
+    )
+
+
+def _load_mcp_base():
+    from mcp import ClientSession, StdioServerParameters  # type: ignore
+    from mcp.client.stdio import stdio_client  # type: ignore
+
+    return ClientSession, StdioServerParameters, stdio_client
+
+
+def _ensure_mcp_imports() -> McpClientImports:
+    pip_target = _resolve_pip_target()
+    pip_target.mkdir(parents=True, exist_ok=True)
+    _ensure_target_on_sys_path(pip_target)
+    try:
+        ClientSession, StdioServerParameters, stdio_client = _load_mcp_base()
+    except Exception:
+        _install_mcp("mcp", target=pip_target)
+        _clear_mcp_modules()
+        ClientSession, StdioServerParameters, stdio_client = _load_mcp_base()
+
+    StreamableHttpServerParameters, streamable_http_client = (
+        _try_import_streamable_http()
+    )
+    if streamable_http_client is None:
+        try:
+            _install_mcp_from_git(pip_target)
+        except Exception:
+            pass
+        _clear_mcp_modules()
+        try:
+            ClientSession, StdioServerParameters, stdio_client = _load_mcp_base()
+        except Exception:
+            pass
+        StreamableHttpServerParameters, streamable_http_client = (
+            _try_import_streamable_http()
         )
+
+    return McpClientImports(
+        ClientSession=ClientSession,
+        StdioServerParameters=StdioServerParameters,
+        stdio_client=stdio_client,
+        StreamableHttpServerParameters=StreamableHttpServerParameters,
+        streamable_http_client=streamable_http_client,
+    )
 
 
 def _estimate_tokens(text: str) -> int:
@@ -442,6 +519,22 @@ def _normalize_content_blocks(content: object) -> list[dict[str, object]]:
     return normalized
 
 
+def _normalize_input_schema(raw_schema: object) -> dict[str, object]:
+    if isinstance(raw_schema, dict):
+        schema = dict(raw_schema)
+    else:
+        schema = {}
+
+    schema_type = schema.get("type")
+    if not isinstance(schema_type, str) or not schema_type:
+        schema["type"] = "object"
+
+    if schema.get("type") == "object" and "properties" not in schema:
+        schema["properties"] = {}
+
+    return schema
+
+
 def _ensure_anthropic_client():
     try:
         from anthropic import Anthropic  # type: ignore
@@ -500,8 +593,12 @@ async def run_anthropic_with_mcp(
     server_configs: list[McpServerConfig] = []
     for index, repo_config in enumerate(repo_configs, start=1):
         repo_url = repo_config.get("repo_url")
-        if not isinstance(repo_url, str) or not repo_url:
-            raise RuntimeError("MCP repo url must be a string")
+        server_json = repo_config.get("server_json")
+        if server_json is not None and not isinstance(server_json, dict):
+            raise RuntimeError("MCP server_json must be an object")
+        if not repo_url and server_json is None:
+            raise RuntimeError("MCP repo config must include repo_url or server_json")
+
         server_path = repo_config.get("server_path") or "server.json"
         env_overrides = (
             repo_config.get("env") if isinstance(repo_config.get("env"), dict) else {}
@@ -511,16 +608,31 @@ async def run_anthropic_with_mcp(
             if isinstance(repo_config.get("headers"), dict)
             else {}
         )
-        server_configs.append(
-            prepare_mcp_repo(
-                repo_url=repo_url,
-                run_dir=run_dir,
-                server_path=str(server_path),
-                env_overrides={str(k): str(v) for k, v in env_overrides.items()},
-                header_overrides={str(k): str(v) for k, v in header_overrides.items()},
-                repo_index=index,
+        env_clean = {str(k): str(v) for k, v in env_overrides.items()}
+        header_clean = {str(k): str(v) for k, v in header_overrides.items()}
+
+        if server_json is not None:
+            server_configs.append(
+                _build_server_config_from_payload(
+                    payload=server_json,
+                    repo_url=None,
+                    env_overrides=env_clean,
+                    header_overrides=header_clean,
+                )
             )
-        )
+        else:
+            if not isinstance(repo_url, str) or not repo_url:
+                raise RuntimeError("MCP repo url must be a string")
+            server_configs.append(
+                prepare_mcp_repo(
+                    repo_url=repo_url,
+                    run_dir=run_dir,
+                    server_path=str(server_path),
+                    env_overrides=env_clean,
+                    header_overrides=header_clean,
+                    repo_index=index,
+                )
+            )
 
     mcp_imports = _ensure_mcp_imports()
 
@@ -543,20 +655,29 @@ async def run_anthropic_with_mcp(
                     mcp_imports.stdio_client(server_params)
                 )
             elif server_config.transport == "streamable-http":
-                if (
-                    not mcp_imports.streamable_http_client
-                    or not mcp_imports.StreamableHttpServerParameters
-                ):
+                if not mcp_imports.streamable_http_client:
                     raise RuntimeError("MCP streamable-http client not available")
                 if not server_config.url:
                     raise RuntimeError("Remote MCP url missing")
-                server_params = mcp_imports.StreamableHttpServerParameters(
-                    url=server_config.url,
-                    headers=server_config.headers,
-                )
-                read, write = await stack.enter_async_context(
-                    mcp_imports.streamable_http_client(server_params)
-                )
+                if mcp_imports.StreamableHttpServerParameters is not None:
+                    server_params = mcp_imports.StreamableHttpServerParameters(
+                        url=server_config.url,
+                        headers=server_config.headers,
+                    )
+                    read, write = await stack.enter_async_context(
+                        mcp_imports.streamable_http_client(server_params)
+                    )
+                else:
+                    import httpx
+
+                    http_client = httpx.AsyncClient(headers=server_config.headers or {})
+                    await stack.enter_async_context(http_client)
+                    read, write = await stack.enter_async_context(
+                        mcp_imports.streamable_http_client(
+                            server_config.url,
+                            http_client=http_client,
+                        )
+                    )
             else:
                 raise RuntimeError("Unsupported MCP transport")
 
@@ -580,11 +701,12 @@ async def run_anthropic_with_mcp(
                     description = f"[{server_config.name}] {description}"
                 else:
                     description = f"[{server_config.name}]"
+                input_schema = _normalize_input_schema(getattr(tool, "inputSchema", {}))
                 tool_defs.append(
                     {
                         "name": tool_key,
                         "description": description,
-                        "input_schema": getattr(tool, "inputSchema", {}),
+                        "input_schema": input_schema,
                     }
                 )
 

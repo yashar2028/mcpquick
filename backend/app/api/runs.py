@@ -127,6 +127,16 @@ async def create_run(
     if payload.enable_external_mcp:
         if payload.mcp_repos:
             for repo in payload.mcp_repos:
+                if repo.server_json is not None:
+                    mcp_repo_items.append(
+                        {
+                            "server_json": repo.server_json,
+                            "env": repo.env,
+                            "headers": repo.headers,
+                        }
+                    )
+                    continue
+
                 repo_url = str(repo.repo_url)
                 _validate_mcp_repo_url(repo_url)
                 mcp_repo_items.append(
@@ -161,7 +171,14 @@ async def create_run(
             "failure_policy": payload.mcp_failure_policy,
         }
 
-    mcp_repo_url = mcp_repo_items[0]["repo_url"] if mcp_repo_items else None
+    mcp_repo_url = next(
+        (
+            item.get("repo_url")
+            for item in mcp_repo_items
+            if isinstance(item, dict) and item.get("repo_url")
+        ),
+        None,
+    )
 
     run = EvaluationRun(
         user_id=current_user.id,
