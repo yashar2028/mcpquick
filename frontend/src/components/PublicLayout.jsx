@@ -28,13 +28,13 @@ export default function PublicLayout() {
   return (
     <div className="public-shell">
       <header className="site-header">
-        <div className="brand">
+        <NavLink className="brand brand-link" to="/">
           <div className="brand-mark">M</div>
           <div>
             <p className="brand-name">MCP Quick</p>
             <span className="brand-subtitle">Sandboxed agent runs</span>
           </div>
-        </div>
+        </NavLink>
 
         <nav className="site-nav">
           {navLinks.map((link) => (

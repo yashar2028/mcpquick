@@ -230,10 +230,24 @@ export default function RunDetailsPage() {
                     <div className="stack">
                       {repos.map((repo, index) => (
                         <div key={`mcp-repo-${index}`}>
-                          <p>MCP Repo: {repo.repo_url}</p>
-                          <p>
-                            MCP server.json: {repo.server_path || "server.json"}
-                          </p>
+                          {repo.server_json ? (
+                            <>
+                              <p>MCP Repo: inline server.json</p>
+                              <p>
+                                MCP server.json: inline
+                                {typeof repo.server_json?.name === "string"
+                                  ? ` (${repo.server_json.name})`
+                                  : ""}
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <p>MCP Repo: {repo.repo_url}</p>
+                              <p>
+                                MCP server.json: {repo.server_path || "server.json"}
+                              </p>
+                            </>
+                          )}
                         </div>
                       ))}
                     </div>

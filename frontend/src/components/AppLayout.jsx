@@ -35,13 +35,13 @@ export default function AppLayout() {
   return (
     <div className="app-shell">
       <aside className="app-sidebar">
-        <div className="brand">
+        <NavLink className="brand brand-link" to="/">
           <div className="brand-mark">M</div>
           <div>
             <p className="brand-name">MCP Quick</p>
             <span className="brand-subtitle">Agent console</span>
           </div>
-        </div>
+        </NavLink>
 
         <NavLink className="primary-link" to="/runs/new">
           <PlusCircle size={16} aria-hidden />

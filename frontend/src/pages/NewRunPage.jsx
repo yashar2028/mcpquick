@@ -22,11 +22,13 @@ export default function NewRunPage() {
   const [enableExternalMcp, setEnableExternalMcp] = useState(false);
   const [mcpRepos, setMcpRepos] = useState([
     {
+      source: "repo",
       repoUrl: "",
       serverPath: "server.json",
       envText: "",
       headersText: "",
       transport: "stdio",
+      serverJsonText: "",
     },
   ]);
   const [mcpFailOnError, setMcpFailOnError] = useState(true);
@@ -58,11 +60,13 @@ export default function NewRunPage() {
     setMcpRepos((current) => [
       ...current,
       {
+        source: "repo",
         repoUrl: "",
         serverPath: "server.json",
         envText: "",
         headersText: "",
         transport: "stdio",
+        serverJsonText: "",
       },
     ]);
   };
@@ -109,11 +113,16 @@ export default function NewRunPage() {
     let parsedRepos = [];
     try {
       parsedRepos = mcpRepos
-        .filter((repo) => repo.repoUrl.trim())
+        .filter((repo) =>
+          repo.source === "inline"
+            ? repo.serverJsonText.trim()
+            : repo.repoUrl.trim()
+        )
         .map((repo, index) => {
           const hasEnv = repo.envText.trim().length > 0;
           const hasHeaders = repo.headersText.trim().length > 0;
           const transport = repo.transport || "stdio";
+          const isInline = repo.source === "inline";
 
           if (transport === "stdio" && hasHeaders) {
             throw new Error(
@@ -122,6 +131,31 @@ export default function NewRunPage() {
           }
           if (transport === "streamable-http" && hasEnv) {
             throw new Error(`Repo ${index + 1}: env is only valid for stdio.`);
+          }
+
+          if (isInline) {
+            let serverJson = null;
+            try {
+              serverJson = JSON.parse(repo.serverJsonText);
+            } catch (err) {
+              throw new Error(
+                `Repo ${index + 1}: server.json must be valid JSON.`
+              );
+            }
+            if (!serverJson || typeof serverJson !== "object" || Array.isArray(serverJson)) {
+              throw new Error(
+                `Repo ${index + 1}: server.json must be a JSON object.`
+              );
+            }
+
+            return {
+              server_json: serverJson,
+              env: transport === "stdio" ? parseKeyValueLines(repo.envText, "env") : {},
+              headers:
+                transport === "streamable-http"
+                  ? parseKeyValueLines(repo.headersText, "headers")
+                  : {},
+            };
           }
 
           return {
@@ -253,7 +287,7 @@ export default function NewRunPage() {
             onChange={(event) => setEnableExternalMcp(event.target.checked)}
             disabled={provider !== "anthropic"}
           />
-          Enable MCP server (repo-based)
+          Enable MCP server
         </label>
 
         {provider !== "anthropic" ? (
@@ -266,6 +300,22 @@ export default function NewRunPage() {
           <div className="stack">
             {mcpRepos.map((repo, index) => (
               <div key={`mcp-repo-${index}`} className="stack">
+                <label>
+                  MCP source
+                  <select
+                    value={repo.source}
+                    onChange={(event) =>
+                      updateRepo(index, { source: event.target.value })
+                    }
+                  >
+                    <option value="repo">GitHub repo</option>
+                    <option value="inline">Inline server.json</option>
+                  </select>
+                  <span className="hint">
+                    Use a repo URL or paste server.json directly.
+                  </span>
+                </label>
+
                 <label>
                   Transport
                   <select
@@ -282,32 +332,50 @@ export default function NewRunPage() {
                   </span>
                 </label>
 
-                <label>
-                  MCP Repo URL
-                  <input
-                    type="url"
-                    value={repo.repoUrl}
-                    onChange={(event) =>
-                      updateRepo(index, { repoUrl: event.target.value })
-                    }
-                    placeholder="https://github.com/org/repo"
-                    required={enableExternalMcp}
-                  />
-                  <span className="hint">Public repo containing server.json.</span>
-                </label>
+                {repo.source === "repo" ? (
+                  <>
+                    <label>
+                      MCP Repo URL
+                      <input
+                        type="url"
+                        value={repo.repoUrl}
+                        onChange={(event) =>
+                          updateRepo(index, { repoUrl: event.target.value })
+                        }
+                        placeholder="https://github.com/org/repo"
+                        required={enableExternalMcp && repo.source === "repo"}
+                      />
+                      <span className="hint">Public repo containing server.json.</span>
+                    </label>
 
-                <label>
-                  server.json path
-                  <input
-                    value={repo.serverPath}
-                    onChange={(event) =>
-                      updateRepo(index, { serverPath: event.target.value })
-                    }
-                    placeholder="server.json"
-                    required={enableExternalMcp}
-                  />
-                  <span className="hint">Relative to repo root.</span>
-                </label>
+                    <label>
+                      server.json path
+                      <input
+                        value={repo.serverPath}
+                        onChange={(event) =>
+                          updateRepo(index, { serverPath: event.target.value })
+                        }
+                        placeholder="server.json"
+                        required={enableExternalMcp && repo.source === "repo"}
+                      />
+                      <span className="hint">Relative to repo root.</span>
+                    </label>
+                  </>
+                ) : (
+                  <label>
+                    server.json content
+                    <textarea
+                      value={repo.serverJsonText}
+                      onChange={(event) =>
+                        updateRepo(index, { serverJsonText: event.target.value })
+                      }
+                      rows={6}
+                      placeholder={`{\n  "name": "my-mcp",\n  "packages": [...]\n}`}
+                      required={enableExternalMcp && repo.source === "inline"}
+                    />
+                    <span className="hint">Paste the full server.json payload.</span>
+                  </label>
+                )}
 
                 {repo.transport === "stdio" ? (
                   <label>

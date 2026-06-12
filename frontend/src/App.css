@@ -139,6 +139,17 @@ button:disabled {
   gap: 0.6rem;
 }
 
+.brand-link {
+  text-decoration: none;
+  color: inherit;
+}
+
+.brand-link:focus-visible {
+  outline: 2px solid rgba(27, 154, 170, 0.45);
+  outline-offset: 4px;
+  border-radius: 12px;
+}
+
 .brand-mark {
   width: 36px;
   height: 36px;
