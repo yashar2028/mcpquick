@@ -651,33 +651,31 @@ async def run_anthropic_with_mcp(
                     args=server_config.args,
                     env=server_config.env,
                 )
-                read, write = await stack.enter_async_context(
+                stdio_conn = await stack.enter_async_context(
                     mcp_imports.stdio_client(server_params)
                 )
+
+                read, write = stdio_conn
             elif server_config.transport == "streamable-http":
                 if not mcp_imports.streamable_http_client:
                     raise RuntimeError("MCP streamable-http client not available")
                 if not server_config.url:
                     raise RuntimeError("Remote MCP url missing")
-                if mcp_imports.StreamableHttpServerParameters is not None:
-                    server_params = mcp_imports.StreamableHttpServerParameters(
-                        url=server_config.url,
-                        headers=server_config.headers,
-                    )
-                    read, write = await stack.enter_async_context(
-                        mcp_imports.streamable_http_client(server_params)
-                    )
-                else:
-                    import httpx
+                import httpx
 
-                    http_client = httpx.AsyncClient(headers=server_config.headers or {})
-                    await stack.enter_async_context(http_client)
-                    read, write = await stack.enter_async_context(
-                        mcp_imports.streamable_http_client(
-                            server_config.url,
-                            http_client=http_client,
-                        )
+                http_client = httpx.AsyncClient(headers=server_config.headers or {})
+                await stack.enter_async_context(http_client)
+
+                conn = await stack.enter_async_context(
+                    mcp_imports.streamable_http_client(
+                        server_config.url,
+                        http_client=http_client,
                     )
+                )
+
+                read, write = (
+                    conn[:2] if isinstance(conn, tuple) else (conn.read, conn.write)
+                )
             else:
                 raise RuntimeError("Unsupported MCP transport")
 

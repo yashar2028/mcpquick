@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     SCORE_WEIGHT_RELIABILITY: float = 0.10
 
     class Config:
-        env_file = "../.env.dev"
+        env_file = ".env"
         env_file_encoding = "utf-8"
 
 
