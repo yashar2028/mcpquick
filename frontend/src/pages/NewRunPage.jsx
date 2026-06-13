@@ -386,7 +386,7 @@ export default function NewRunPage() {
                         updateRepo(index, { envText: event.target.value })
                       }
                       rows={3}
-                      placeholder="NASA_API_KEY=..."
+                      placeholder="KEY=VALUE"
                     />
                     <span className="hint">
                       Used for stdio packages (environmentVariables).

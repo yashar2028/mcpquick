@@ -18,19 +18,19 @@ export default function ContactPage() {
       <div className="contact-grid">
         <div className="info-card">
           <h3>Support</h3>
-          <p>support@mcpquick.local</p>
+          <p>yashar.najafi@stud.th-deg.de</p>
         </div>
         <div className="info-card">
           <h3>Product feedback</h3>
-          <p>product@mcpquick.local</p>
+          <p>yashar.najafi@stud.th-deg.de</p>
         </div>
         <div className="info-card">
           <h3>Partnerships</h3>
-          <p>partners@mcpquick.local</p>
+          <p>yashar.najafi@stud.th-deg.de</p>
         </div>
         <div className="info-card">
           <h3>Security</h3>
-          <p>security@mcpquick.local</p>
+          <p>yashar.najafi@stud.th-deg.de</p>
         </div>
       </div>
     </section>
