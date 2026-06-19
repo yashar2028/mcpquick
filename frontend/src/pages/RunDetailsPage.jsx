@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import {
   deleteRun,
+  downloadRunArtifacts,
   getRun,
   getRunEvents,
   getRunInstructionFile,
@@ -25,6 +26,7 @@ export default function RunDetailsPage() {
   const [instructionFileContents, setInstructionFileContents] = useState({});
   const [visibleInstructionFileIds, setVisibleInstructionFileIds] = useState([]);
   const [loadingInstructionFileId, setLoadingInstructionFileId] = useState(null);
+  const [downloadingArtifacts, setDownloadingArtifacts] = useState(false);
   const [retryApiKey, setRetryApiKey] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -140,6 +142,29 @@ export default function RunDetailsPage() {
       navigate(`/runs/${retry.id}`);
     } catch (err) {
       setError(err.response?.data?.detail || err.message);
+    }
+  };
+
+  const handleDownloadArtifacts = async () => {
+    if (!runId) {
+      return;
+    }
+
+    try {
+      setDownloadingArtifacts(true);
+      const { blob, filename } = await downloadRunArtifacts(token, runId);
+      const objectUrl = window.URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      setError(err.response?.data?.detail || err.message);
+    } finally {
+      setDownloadingArtifacts(false);
     }
   };
 
@@ -369,6 +394,13 @@ export default function RunDetailsPage() {
           <div className="inline-actions">
             <button type="button" className="danger" onClick={handleDelete}>
               Delete Run
+            </button>
+            <button
+              type="button"
+              onClick={handleDownloadArtifacts}
+              disabled={downloadingArtifacts}
+            >
+              {downloadingArtifacts ? "Preparing Zip..." : "Download Run Zip"}
             </button>
           </div>
 

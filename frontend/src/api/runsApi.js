@@ -44,6 +44,22 @@ export async function getRunInstructionFile(token, runId, fileId) {
   return response.data;
 }
 
+export async function downloadRunArtifacts(token, runId) {
+  const response = await apiClient.get(`/v1/runs/${runId}/artifacts.zip`, {
+    ...authConfig(token),
+    responseType: "blob",
+  });
+
+  const disposition = response.headers?.["content-disposition"] || "";
+  const fileNameMatch = disposition.match(/filename="?([^";]+)"?/i);
+  const filename = fileNameMatch?.[1] || `run-${runId}-artifacts.zip`;
+
+  return {
+    blob: response.data,
+    filename,
+  };
+}
+
 export async function deleteRun(token, runId) {
   await apiClient.delete(`/v1/runs/${runId}`, authConfig(token));
 }

@@ -11,9 +11,12 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, time
 import hashlib
+import io
 import ipaddress
+import json
 from pathlib import Path
 from urllib.parse import urlparse
+import zipfile
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import desc, func, select
@@ -105,6 +108,67 @@ def _to_instruction_file_record(
         content_sha256=hashlib.sha256(encoded).hexdigest(),
         upload_order=upload_order,
     )
+
+
+def _build_run_report_snapshot(run: EvaluationRun) -> dict[str, object]:
+    """Build a report snapshot included in downloaded artifact archives."""
+    return {
+        "run_id": run.id,
+        "status": run.status.value,
+        "provider": run.provider,
+        "model": run.model,
+        "prompt": run.prompt,
+        "max_steps": run.max_steps,
+        "created_at": run.created_at.isoformat() if run.created_at else None,
+        "updated_at": run.updated_at.isoformat() if run.updated_at else None,
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+        "step_count": run.step_count,
+        "token_input": run.token_input,
+        "token_output": run.token_output,
+        "estimated_cost_usd": run.estimated_cost_usd,
+        "latency_ms": run.latency_ms,
+        "total_score": run.total_score,
+        "score_breakdown": run.score_breakdown,
+        "evaluation_summary": run.evaluation_summary,
+        "judge_report": run.judge_report,
+        "judge_model": run.judge_model,
+        "error_message": run.error_message,
+        "instruction_files": [
+            {
+                "filename": item.filename,
+                "size_bytes": item.size_bytes,
+                "content_sha256": item.content_sha256,
+                "upload_order": item.upload_order,
+            }
+            for item in sorted(
+                run.instruction_files, key=lambda file_item: file_item.upload_order
+            )
+        ],
+    }
+
+
+def _zip_run_artifacts(
+    run_dir: Path,
+    report_snapshot: dict[str, object],
+) -> bytes:
+    """Create a zip archive from one run sandbox directory and report snapshot."""
+    archive = io.BytesIO()
+    with zipfile.ZipFile(
+        archive, mode="w", compression=zipfile.ZIP_DEFLATED
+    ) as zip_file:
+        for file_path in sorted(run_dir.rglob("*")):
+            if file_path.is_file():
+                zip_file.write(
+                    file_path, arcname=file_path.relative_to(run_dir).as_posix()
+                )
+
+        zip_file.writestr(
+            "run_report.json",
+            json.dumps(report_snapshot, ensure_ascii=True, indent=2),
+        )
+
+    return archive.getvalue()
 
 
 def _normalize_status_filter(raw_status: str | None) -> RunStatus | None:
@@ -411,6 +475,42 @@ async def get_run_logs(
         run_id=run_id,
         stdout_tail=stdout_tail,
         stderr_tail=stderr_tail,
+    )
+
+
+@router.get("/{run_id}/artifacts.zip")
+async def download_run_artifacts_zip(
+    run_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Download one run's sandbox artifacts as a zip archive."""
+    run = await _get_run_or_404(db, run_id, current_user.id)
+
+    backend_root = Path(__file__).resolve().parents[2]
+    runs_root = (backend_root / settings.SANDBOX_RUN_BASE_DIR).resolve()
+    run_dir = (runs_root / run_id).resolve()
+
+    if not run_dir.is_dir():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No sandbox artifacts found for this run",
+        )
+
+    try:
+        run_dir.relative_to(runs_root)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid run artifacts path",
+        ) from exc
+
+    zip_content = _zip_run_artifacts(run_dir, _build_run_report_snapshot(run))
+    filename = f"run-{run_id}-artifacts.zip"
+    return Response(
+        content=zip_content,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
