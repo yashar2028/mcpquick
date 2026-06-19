@@ -37,3 +37,22 @@ export function formatPayload(payload) {
 
   return `${text.slice(0, MAX_PAYLOAD_CHARS)}\n...<truncated>`;
 }
+
+export function formatFileSize(bytes) {
+  const value = Number(bytes);
+  if (!Number.isFinite(value) || value < 0) {
+    return "-";
+  }
+  if (value === 0) {
+    return "0 B";
+  }
+
+  const units = ["B", "KB", "MB", "GB"];
+  const unitIndex = Math.min(
+    Math.floor(Math.log(value) / Math.log(1024)),
+    units.length - 1
+  );
+  const sized = value / 1024 ** unitIndex;
+  const precision = unitIndex === 0 ? 0 : 2;
+  return `${sized.toFixed(precision)} ${units[unitIndex]}`;
+}

@@ -10,6 +10,7 @@ This module exposes the public HTTP surface used by the frontend to:
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, time
+import hashlib
 import ipaddress
 from pathlib import Path
 from urllib.parse import urlparse
@@ -17,13 +18,15 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user
 from app.core.config import settings
 from app.db.session import get_db
-from app.models.run import EvaluationRun, RunEvent, RunStatus
+from app.models.run import EvaluationRun, RunEvent, RunInstructionFile, RunStatus
 from app.models.user import User
 from app.schemas.run import (
+    InstructionFileContentResponse,
     RunCreateRequest,
     RunDetailResponse,
     RunEventResponse,
@@ -34,7 +37,10 @@ from app.schemas.run import (
 )
 from app.services.api_keys import stash_run_api_key
 from app.services.run_logs import read_run_log_tails
-from app.services.run_presenters import to_run_detail, to_run_event_response
+from app.services.run_presenters import (
+    to_run_detail,
+    to_run_event_response,
+)
 from app.workers.run_worker import enqueue_run
 
 router = APIRouter(prefix="/v1/runs", tags=["runs"])
@@ -47,7 +53,9 @@ async def _get_run_or_404(
 ) -> EvaluationRun:
     """Load run by id or raise 404 if not found."""
     result = await db.execute(
-        select(EvaluationRun).where(
+        select(EvaluationRun)
+        .options(selectinload(EvaluationRun.instruction_files))
+        .where(
             EvaluationRun.id == run_id,
             EvaluationRun.user_id == user_id,
         )
@@ -58,6 +66,45 @@ async def _get_run_or_404(
             status_code=status.HTTP_404_NOT_FOUND, detail="Run not found"
         )
     return run
+
+
+async def _get_instruction_file_or_404(
+    db: AsyncSession,
+    run_id: str,
+    file_id: str,
+    user_id: str,
+) -> RunInstructionFile:
+    result = await db.execute(
+        select(RunInstructionFile)
+        .join(EvaluationRun, RunInstructionFile.run_id == EvaluationRun.id)
+        .where(
+            RunInstructionFile.id == file_id,
+            RunInstructionFile.run_id == run_id,
+            EvaluationRun.user_id == user_id,
+        )
+    )
+    instruction_file = result.scalar_one_or_none()
+    if instruction_file is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Instruction file not found",
+        )
+    return instruction_file
+
+
+def _to_instruction_file_record(
+    filename: str,
+    content: str,
+    upload_order: int,
+) -> RunInstructionFile:
+    encoded = content.encode("utf-8")
+    return RunInstructionFile(
+        filename=filename,
+        content=content,
+        size_bytes=len(encoded),
+        content_sha256=hashlib.sha256(encoded).hexdigest(),
+        upload_order=upload_order,
+    )
 
 
 def _normalize_status_filter(raw_status: str | None) -> RunStatus | None:
@@ -171,6 +218,18 @@ async def create_run(
             "failure_policy": payload.mcp_failure_policy,
         }
 
+    instruction_file_records = [
+        _to_instruction_file_record(
+            filename=item.filename,
+            content=item.content,
+            upload_order=index,
+        )
+        for index, item in enumerate(payload.instruction_files)
+    ]
+    instruction_files_total_size = sum(
+        item.size_bytes for item in instruction_file_records
+    )
+
     mcp_repo_url = next(
         (
             item.get("repo_url")
@@ -195,6 +254,7 @@ async def create_run(
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
     )
+    run.instruction_files.extend(instruction_file_records)
     run.events.append(
         RunEvent(
             event_type="run_queued",
@@ -202,6 +262,10 @@ async def create_run(
             payload={
                 "sandbox_profile": settings.SANDBOX_PROFILE,
                 "external_mcp_in_same_boundary": True,
+                "instruction_files": {
+                    "count": len(instruction_file_records),
+                    "total_size_bytes": instruction_files_total_size,
+                },
             },
         )
     )
@@ -210,10 +274,15 @@ async def create_run(
     await db.flush()
     await stash_run_api_key(run.id, payload.api_key)
     await db.commit()
-    await db.refresh(run)
+    created_result = await db.execute(
+        select(EvaluationRun)
+        .options(selectinload(EvaluationRun.instruction_files))
+        .where(EvaluationRun.id == run.id)
+    )
+    created_run = created_result.scalar_one()
 
     enqueue_run(run.id)
-    return to_run_detail(run)
+    return to_run_detail(created_run)
 
 
 @router.get("", response_model=RunListResponse)
@@ -232,6 +301,7 @@ async def list_runs(
     normalized_status = _normalize_status_filter(status_filter)
 
     statement = select(EvaluationRun).where(EvaluationRun.user_id == current_user.id)
+    statement = statement.options(selectinload(EvaluationRun.instruction_files))
 
     if provider:
         statement = statement.where(EvaluationRun.provider == provider.strip().lower())
@@ -269,6 +339,35 @@ async def get_run(
     """Return run details for a single run id."""
     run = await _get_run_or_404(db, run_id, current_user.id)
     return to_run_detail(run)
+
+
+@router.get(
+    "/{run_id}/instruction-files/{file_id}",
+    response_model=InstructionFileContentResponse,
+)
+async def get_run_instruction_file(
+    run_id: str,
+    file_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return one persisted instruction file content for an authorized run owner."""
+    instruction_file = await _get_instruction_file_or_404(
+        db=db,
+        run_id=run_id,
+        file_id=file_id,
+        user_id=current_user.id,
+    )
+    return InstructionFileContentResponse(
+        id=instruction_file.id,
+        run_id=instruction_file.run_id,
+        filename=instruction_file.filename,
+        content=instruction_file.content,
+        size_bytes=instruction_file.size_bytes,
+        content_sha256=instruction_file.content_sha256,
+        upload_order=instruction_file.upload_order,
+        created_at=instruction_file.created_at,
+    )
 
 
 @router.get("/{run_id}/events", response_model=list[RunEventResponse])
@@ -395,6 +494,24 @@ async def retry_run(
         updated_at=datetime.now(UTC),
     )
 
+    retry_run_item.instruction_files.extend(
+        [
+            _to_instruction_file_record(
+                filename=item.filename,
+                content=item.content,
+                upload_order=item.upload_order,
+            )
+            for item in sorted(
+                previous_run.instruction_files,
+                key=lambda file_item: file_item.upload_order,
+            )
+        ]
+    )
+
+    instruction_files_total_size = sum(
+        item.size_bytes for item in retry_run_item.instruction_files
+    )
+
     retry_run_item.events.append(
         RunEvent(
             event_type="run_queued",
@@ -403,6 +520,19 @@ async def retry_run(
                 "retry_of_run_id": previous_run.id,
                 "sandbox_profile": previous_run.sandbox_profile,
                 "external_mcp_in_same_boundary": True,
+                "instruction_files": {
+                    "count": len(retry_run_item.instruction_files),
+                    "total_size_bytes": instruction_files_total_size,
+                    "items": [
+                        {
+                            "filename": item.filename,
+                            "size_bytes": item.size_bytes,
+                            "content_sha256": item.content_sha256,
+                            "upload_order": item.upload_order,
+                        }
+                        for item in retry_run_item.instruction_files
+                    ],
+                },
             },
         )
     )
@@ -411,7 +541,12 @@ async def retry_run(
     await db.flush()
     await stash_run_api_key(retry_run_item.id, payload.api_key)
     await db.commit()
-    await db.refresh(retry_run_item)
+    retried_result = await db.execute(
+        select(EvaluationRun)
+        .options(selectinload(EvaluationRun.instruction_files))
+        .where(EvaluationRun.id == retry_run_item.id)
+    )
+    retried_run = retried_result.scalar_one()
 
     enqueue_run(retry_run_item.id)
-    return to_run_detail(retry_run_item)
+    return to_run_detail(retried_run)

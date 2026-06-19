@@ -15,12 +15,17 @@ from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.db.session import AsyncSessionLocal
 from app.models.run import EvaluationRun, RunEvent, RunStatus
 from app.services.api_keys import pop_run_api_key
 from app.services.judge import run_judge
+from app.services.prompt_builder import (
+    build_execution_prompt,
+    build_instruction_file_metadata,
+)
 from app.services.run_failures import classify_run_failure
 from app.services.sandbox import SandboxRunRequest, get_sandbox_adapter
 from app.services.scoring import (
@@ -88,7 +93,9 @@ async def process_run(run_id: str) -> None:
     """
     async with AsyncSessionLocal() as session:
         result = await session.execute(
-            select(EvaluationRun).where(EvaluationRun.id == run_id)
+            select(EvaluationRun)
+            .options(selectinload(EvaluationRun.instruction_files))
+            .where(EvaluationRun.id == run_id)
         )
         run = result.scalar_one_or_none()
         if run is None:
@@ -127,12 +134,37 @@ async def process_run(run_id: str) -> None:
                     },
                 )
 
+            instruction_file_metadata = build_instruction_file_metadata(
+                run.instruction_files
+            )
+            execution_prompt = build_execution_prompt(run.prompt, run.instruction_files)
+
+            if instruction_file_metadata:
+                await _add_event(
+                    session,
+                    run,
+                    event_type="instruction_files_bound",
+                    message="Instruction files attached to execution prompt.",
+                    payload={
+                        "count": len(instruction_file_metadata),
+                        "total_size_bytes": sum(
+                            int(item.get("size_bytes", 0))
+                            for item in instruction_file_metadata
+                        ),
+                        "files": instruction_file_metadata,
+                    },
+                )
+
             await _add_event(
                 session,
                 run,
                 event_type="model_execution_started",
                 message="Started provider model loop inside sandbox.",
-                payload={"provider": run.provider, "model": run.model},
+                payload={
+                    "provider": run.provider,
+                    "model": run.model,
+                    "instruction_file_count": len(instruction_file_metadata),
+                },
                 step_index=1,
             )
             run.updated_at = datetime.now(UTC)
@@ -159,7 +191,7 @@ async def process_run(run_id: str) -> None:
             sandbox_result = await sandbox_adapter.execute(
                 SandboxRunRequest(
                     run_id=run.id,
-                    prompt=run.prompt,
+                    prompt=execution_prompt,
                     provider=run.provider,
                     model=run.model,
                     api_key=provider_api_key,
@@ -205,10 +237,11 @@ async def process_run(run_id: str) -> None:
             if settings.JUDGE_ANTHROPIC_API_KEY:
                 try:
                     judge_report, judge_model, judge_latency_ms = run_judge(
-                        prompt=run.prompt,
+                        prompt=execution_prompt,
                         output_text=sandbox_result.output_text,
                         tool_trace=sandbox_result.tool_trace,
                         repo_urls=repo_urls,
+                        instruction_files_metadata=instruction_file_metadata,
                     )
                     run.judge_report = judge_report
                     run.judge_model = judge_model

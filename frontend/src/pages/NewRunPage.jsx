@@ -4,6 +4,12 @@ import { useNavigate } from "react-router-dom";
 import { createRun } from "../api/runsApi";
 import { MODEL_OPTIONS, PROVIDER_OPTIONS } from "../constants";
 import { useAuth } from "../context/AuthContext";
+import { formatFileSize } from "../utils/formatters";
+
+const MAX_INSTRUCTION_FILES = 10;
+const MAX_INSTRUCTION_FILE_BYTES = 100 * 1024;
+const MAX_INSTRUCTION_FILES_TOTAL_BYTES = 500 * 1024;
+const ALLOWED_INSTRUCTION_EXTENSIONS = [".md", ".txt"];
 
 export default function NewRunPage() {
   const navigate = useNavigate();
@@ -32,6 +38,8 @@ export default function NewRunPage() {
     },
   ]);
   const [mcpFailOnError, setMcpFailOnError] = useState(true);
+  const [instructionFiles, setInstructionFiles] = useState([]);
+  const [previewInstructionFileId, setPreviewInstructionFileId] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
@@ -105,6 +113,87 @@ export default function NewRunPage() {
 
     return entries;
   };
+
+  const toUtf8Bytes = (text) => new TextEncoder().encode(text).length;
+
+  const validateInstructionFilename = (name) => {
+    const lower = name.toLowerCase();
+    return ALLOWED_INSTRUCTION_EXTENSIONS.some((extension) =>
+      lower.endsWith(extension)
+    );
+  };
+
+  const handleInstructionFileChange = async (event) => {
+    const selectedFiles = Array.from(event.target.files ?? []);
+    if (!selectedFiles.length) {
+      return;
+    }
+
+    try {
+      const nextCount = instructionFiles.length + selectedFiles.length;
+      if (nextCount > MAX_INSTRUCTION_FILES) {
+        throw new Error(
+          `You can upload up to ${MAX_INSTRUCTION_FILES} instruction files.`
+        );
+      }
+
+      const nextEntries = [];
+      for (const selectedFile of selectedFiles) {
+        if (!validateInstructionFilename(selectedFile.name)) {
+          throw new Error(
+            `${selectedFile.name}: only .md or .txt instruction files are allowed.`
+          );
+        }
+
+        const content = await selectedFile.text();
+        const sizeBytes = toUtf8Bytes(content);
+        if (sizeBytes > MAX_INSTRUCTION_FILE_BYTES) {
+          throw new Error(
+            `${selectedFile.name}: file exceeds ${formatFileSize(
+              MAX_INSTRUCTION_FILE_BYTES
+            )}.`
+          );
+        }
+
+        nextEntries.push({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+          filename: selectedFile.name,
+          content,
+          sizeBytes,
+        });
+      }
+
+      const totalBytes =
+        instructionFiles.reduce((acc, item) => acc + item.sizeBytes, 0) +
+        nextEntries.reduce((acc, item) => acc + item.sizeBytes, 0);
+      if (totalBytes > MAX_INSTRUCTION_FILES_TOTAL_BYTES) {
+        throw new Error(
+          `Instruction files exceed total limit of ${formatFileSize(
+            MAX_INSTRUCTION_FILES_TOTAL_BYTES
+          )}.`
+        );
+      }
+
+      setInstructionFiles((current) => [...current, ...nextEntries]);
+      setError(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      event.target.value = "";
+    }
+  };
+
+  const removeInstructionFile = (fileId) => {
+    setInstructionFiles((current) => current.filter((item) => item.id !== fileId));
+    if (previewInstructionFileId === fileId) {
+      setPreviewInstructionFileId(null);
+    }
+  };
+
+  const instructionFilesTotalBytes = instructionFiles.reduce(
+    (acc, item) => acc + item.sizeBytes,
+    0
+  );
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -190,6 +279,10 @@ export default function NewRunPage() {
         external_mcp_url: null,
         mcp_repos: enableExternalMcp ? parsedRepos : [],
         mcp_failure_policy: mcpFailOnError ? "fail" : "continue",
+        instruction_files: instructionFiles.map((file) => ({
+          filename: file.filename,
+          content: file.content,
+        })),
       });
       setApiKey("");
       navigate(`/runs/${run.id}`);
@@ -279,6 +372,77 @@ export default function NewRunPage() {
             Stored in memory for this run only. It is never persisted.
           </span>
         </label>
+
+        <section className="instruction-files-panel">
+          <div className="section-header">
+            <h3>Instruction Files</h3>
+            <p className="muted">
+              {instructionFiles.length} / {MAX_INSTRUCTION_FILES} files
+            </p>
+          </div>
+
+          <label>
+            Upload .md or .txt files
+            <input
+              type="file"
+              accept=".md,.txt,text/plain"
+              multiple
+              onChange={handleInstructionFileChange}
+            />
+            <span className="hint">
+              Max {formatFileSize(MAX_INSTRUCTION_FILE_BYTES)} per file, total {" "}
+              {formatFileSize(MAX_INSTRUCTION_FILES_TOTAL_BYTES)}.
+            </span>
+          </label>
+
+          <p className="hint">
+            Total uploaded size: {formatFileSize(instructionFilesTotalBytes)}
+          </p>
+
+          {!instructionFiles.length ? (
+            <p className="muted">No instruction files uploaded yet.</p>
+          ) : (
+            <ul className="instruction-file-list">
+              {instructionFiles.map((file, index) => {
+                const isPreviewOpen = previewInstructionFileId === file.id;
+                return (
+                  <li key={file.id} className="instruction-file-item">
+                    <div className="instruction-file-head">
+                      <div>
+                        <strong>
+                          {index + 1}. {file.filename}
+                        </strong>
+                        <p className="muted">{formatFileSize(file.sizeBytes)}</p>
+                      </div>
+                      <div className="inline-actions">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setPreviewInstructionFileId((current) =>
+                              current === file.id ? null : file.id
+                            )
+                          }
+                        >
+                          {isPreviewOpen ? "Hide Preview" : "Preview"}
+                        </button>
+                        <button
+                          type="button"
+                          className="danger ghost"
+                          onClick={() => removeInstructionFile(file.id)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                    {isPreviewOpen ? (
+                      <pre className="instruction-file-preview">{file.content}</pre>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
 
         <label className="check-row">
           <input

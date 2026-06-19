@@ -36,6 +36,14 @@ export async function getRunLogs(token, runId) {
   return response.data;
 }
 
+export async function getRunInstructionFile(token, runId, fileId) {
+  const response = await apiClient.get(
+    `/v1/runs/${runId}/instruction-files/${fileId}`,
+    authConfig(token)
+  );
+  return response.data;
+}
+
 export async function deleteRun(token, runId) {
   await apiClient.delete(`/v1/runs/${runId}`, authConfig(token));
 }

@@ -852,6 +852,56 @@ button:disabled {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.instruction-files-panel {
+  border: 1px dashed rgba(27, 154, 170, 0.4);
+  border-radius: 14px;
+  padding: 0.8rem;
+  display: grid;
+  gap: 0.6rem;
+  background: rgba(27, 154, 170, 0.06);
+}
+
+.instruction-file-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.instruction-file-item {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 0.65rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.instruction-file-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.instruction-file-head p {
+  margin: 0.15rem 0 0;
+  font-size: 0.84rem;
+}
+
+.instruction-file-preview {
+  margin: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.55rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.8rem;
+}
+
 .stats-grid {
   display: grid;
   gap: 0.7rem;

@@ -109,6 +109,13 @@ class EvaluationRun(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    instruction_files: Mapped[list[RunInstructionFile]] = relationship(
+        "RunInstructionFile",
+        back_populates="run",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="RunInstructionFile.upload_order",
+    )
     user: Mapped[User] = relationship("User", back_populates="runs")
 
 
@@ -135,3 +142,31 @@ class RunEvent(Base):
     )
 
     run: Mapped[EvaluationRun] = relationship("EvaluationRun", back_populates="events")
+
+
+class RunInstructionFile(Base):
+    """Immutable instruction file snapshot associated with one run."""
+
+    __tablename__ = "run_instruction_files"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid4())
+    )
+    run_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("evaluation_runs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    filename: Mapped[str] = mapped_column(String(240), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    upload_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    run: Mapped[EvaluationRun] = relationship(
+        "EvaluationRun", back_populates="instruction_files"
+    )

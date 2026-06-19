@@ -2,8 +2,26 @@
 
 from __future__ import annotations
 
-from app.models.run import EvaluationRun, RunEvent
-from app.schemas.run import RunDetailResponse, RunEventResponse
+from app.models.run import EvaluationRun, RunEvent, RunInstructionFile
+from app.schemas.run import (
+    InstructionFileMetadataResponse,
+    RunDetailResponse,
+    RunEventResponse,
+)
+
+
+def to_instruction_file_metadata(
+    instruction_file: RunInstructionFile,
+) -> InstructionFileMetadataResponse:
+    """Map instruction file ORM entity into API-safe metadata payload."""
+    return InstructionFileMetadataResponse(
+        id=instruction_file.id,
+        filename=instruction_file.filename,
+        size_bytes=instruction_file.size_bytes,
+        content_sha256=instruction_file.content_sha256,
+        upload_order=instruction_file.upload_order,
+        created_at=instruction_file.created_at,
+    )
 
 
 def to_run_detail(run: EvaluationRun) -> RunDetailResponse:
@@ -19,6 +37,12 @@ def to_run_detail(run: EvaluationRun) -> RunDetailResponse:
         requested_external_mcp_url=run.requested_external_mcp_url,
         external_mcp_enabled=run.external_mcp_enabled,
         mcp_config=run.mcp_config,
+        instruction_files=[
+            to_instruction_file_metadata(item)
+            for item in sorted(
+                run.instruction_files, key=lambda file_item: file_item.upload_order
+            )
+        ],
         step_count=run.step_count,
         token_input=run.token_input,
         token_output=run.token_output,

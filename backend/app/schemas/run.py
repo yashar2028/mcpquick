@@ -3,9 +3,78 @@ from __future__ import annotations
 """Pydantic schemas for run creation, querying, logs, and reports."""
 
 from datetime import datetime
+import os
 from typing import Any
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
+
+
+MAX_INSTRUCTION_FILES = 10
+MAX_INSTRUCTION_FILE_BYTES = 100 * 1024
+MAX_INSTRUCTION_FILES_TOTAL_BYTES = 500 * 1024
+ALLOWED_INSTRUCTION_EXTENSIONS = {".md", ".txt"}
+
+
+def _utf8_size(value: str) -> int:
+    return len(value.encode("utf-8"))
+
+
+class InstructionFileUploadRequest(BaseModel):
+    """One instruction file upload payload captured and persisted per run."""
+
+    filename: str = Field(min_length=1, max_length=240)
+    content: str = Field(min_length=1)
+
+    @field_validator("filename")
+    @classmethod
+    def validate_filename(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("filename must not be empty")
+        if "/" in normalized or "\\" in normalized:
+            raise ValueError("filename must not contain path separators")
+
+        _, ext = os.path.splitext(normalized)
+        if ext.lower() not in ALLOWED_INSTRUCTION_EXTENSIONS:
+            raise ValueError("instruction files must end with .md or .txt")
+
+        return normalized
+
+    @field_validator("content")
+    @classmethod
+    def validate_content(cls, value: str) -> str:
+        if "\x00" in value:
+            raise ValueError("content must not contain null bytes")
+        content_size = _utf8_size(value)
+        if content_size > MAX_INSTRUCTION_FILE_BYTES:
+            raise ValueError(
+                f"instruction file content exceeds {MAX_INSTRUCTION_FILE_BYTES} bytes"
+            )
+        return value
+
+
+class InstructionFileMetadataResponse(BaseModel):
+    """Instruction file metadata returned in run detail payloads."""
+
+    id: str
+    filename: str
+    size_bytes: int
+    content_sha256: str
+    upload_order: int
+    created_at: datetime
+
+
+class InstructionFileContentResponse(BaseModel):
+    """Full instruction file payload fetched on demand from run details."""
+
+    id: str
+    run_id: str
+    filename: str
+    content: str
+    size_bytes: int
+    content_sha256: str
+    upload_order: int
+    created_at: datetime
 
 
 class McpRepoRequest(BaseModel):
@@ -40,6 +109,10 @@ class RunCreateRequest(BaseModel):
     mcp_env: dict[str, str] = Field(default_factory=dict)
     mcp_headers: dict[str, str] = Field(default_factory=dict)
     mcp_failure_policy: str = Field(default="fail", min_length=1, max_length=20)
+    instruction_files: list[InstructionFileUploadRequest] = Field(
+        default_factory=list,
+        max_length=MAX_INSTRUCTION_FILES,
+    )
 
     @field_validator("provider")
     @classmethod
@@ -58,6 +131,16 @@ class RunCreateRequest(BaseModel):
         if normalized not in {"fail", "continue"}:
             raise ValueError("mcp_failure_policy must be 'fail' or 'continue'")
         return normalized
+
+    @model_validator(mode="after")
+    def validate_instruction_files_total_size(self):
+        total_size = sum(_utf8_size(item.content) for item in self.instruction_files)
+        if total_size > MAX_INSTRUCTION_FILES_TOTAL_BYTES:
+            raise ValueError(
+                "instruction_files total size exceeds "
+                f"{MAX_INSTRUCTION_FILES_TOTAL_BYTES} bytes"
+            )
+        return self
 
 
 class RunRetryRequest(BaseModel):
@@ -80,6 +163,9 @@ class RunDetailResponse(BaseModel):
     requested_external_mcp_url: str | None
     external_mcp_enabled: bool
     mcp_config: dict[str, Any] | None
+    instruction_files: list[InstructionFileMetadataResponse] = Field(
+        default_factory=list
+    )
 
     step_count: int
     token_input: int

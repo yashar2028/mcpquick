@@ -12,6 +12,7 @@ MAX_JUDGE_TOKENS = 800
 MAX_TOOL_INPUT_CHARS = 500
 MAX_TOOL_TRACE_ITEMS = 12
 MAX_OUTPUT_CHARS = 4000
+MAX_INSTRUCTION_METADATA_CHARS = 3000
 
 
 def _truncate_text(value: str, max_chars: int) -> str:
@@ -52,17 +53,24 @@ def _build_prompt(
     output_text: str,
     tool_trace: list[dict[str, object]],
     repo_urls: list[str],
+    instruction_files_metadata: list[dict[str, Any]] | None,
 ) -> str:
     tools_payload = _format_tool_trace(tool_trace)
     tool_text = json.dumps(tools_payload, ensure_ascii=True)
     repo_text = ", ".join(repo_urls) if repo_urls else "(none)"
     truncated_output = _truncate_text(output_text, MAX_OUTPUT_CHARS)
+    metadata_text = _truncate_text(
+        json.dumps(instruction_files_metadata or [], ensure_ascii=True),
+        MAX_INSTRUCTION_METADATA_CHARS,
+    )
 
     return (
         "You are a judge model. Review the run and return JSON only with keys: "
         "achieved (boolean), summary (string), tools_used (array of {name, input_summary}), "
-        "notes (string, optional). Do not include extra keys.\n\n"
+        "notes (string, optional). Do not include extra keys.\n"
+        "Determine whether the model output followed the uploaded instruction files when present.\n\n"
         f"Run prompt:\n{prompt}\n\n"
+        f"Instruction files metadata (upload order):\n{metadata_text}\n\n"
         f"Model output:\n{truncated_output}\n\n"
         f"MCP repos: {repo_text}\n\n"
         f"Tool usage (name + input summary JSON):\n{tool_text}\n"
@@ -74,6 +82,7 @@ def run_judge(
     output_text: str,
     tool_trace: list[dict[str, object]],
     repo_urls: list[str],
+    instruction_files_metadata: list[dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], str, int]:
     """Run the Anthropic judge model and return (report, model, latency_ms)."""
     api_key = settings.JUDGE_ANTHROPIC_API_KEY
@@ -90,7 +99,13 @@ def run_judge(
         messages=[
             {
                 "role": "user",
-                "content": _build_prompt(prompt, output_text, tool_trace, repo_urls),
+                "content": _build_prompt(
+                    prompt,
+                    output_text,
+                    tool_trace,
+                    repo_urls,
+                    instruction_files_metadata,
+                ),
             }
         ],
         temperature=0,

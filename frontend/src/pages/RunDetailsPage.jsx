@@ -5,12 +5,13 @@ import {
   deleteRun,
   getRun,
   getRunEvents,
+  getRunInstructionFile,
   getRunLogs,
   getRunReport,
   retryRun,
 } from "../api/runsApi";
 import { useAuth } from "../context/AuthContext";
-import { formatPayload, formatScore } from "../utils/formatters";
+import { formatFileSize, formatPayload, formatScore } from "../utils/formatters";
 
 export default function RunDetailsPage() {
   const { runId } = useParams();
@@ -21,6 +22,9 @@ export default function RunDetailsPage() {
   const [events, setEvents] = useState([]);
   const [report, setReport] = useState(null);
   const [logs, setLogs] = useState(null);
+  const [instructionFileContents, setInstructionFileContents] = useState({});
+  const [visibleInstructionFileIds, setVisibleInstructionFileIds] = useState([]);
+  const [loadingInstructionFileId, setLoadingInstructionFileId] = useState(null);
   const [retryApiKey, setRetryApiKey] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -106,6 +110,12 @@ export default function RunDetailsPage() {
     return () => clearInterval(timer);
   }, [runInProgress, loadRunBundle]);
 
+  useEffect(() => {
+    setInstructionFileContents({});
+    setVisibleInstructionFileIds([]);
+    setLoadingInstructionFileId(null);
+  }, [runId]);
+
   const handleDelete = async () => {
     if (!runId) {
       return;
@@ -131,6 +141,37 @@ export default function RunDetailsPage() {
     } catch (err) {
       setError(err.response?.data?.detail || err.message);
     }
+  };
+
+  const toggleInstructionFileContent = async (fileId) => {
+    if (!runId) {
+      return;
+    }
+
+    if (visibleInstructionFileIds.includes(fileId)) {
+      setVisibleInstructionFileIds((current) =>
+        current.filter((item) => item !== fileId)
+      );
+      return;
+    }
+
+    if (!instructionFileContents[fileId]) {
+      try {
+        setLoadingInstructionFileId(fileId);
+        const contentResponse = await getRunInstructionFile(token, runId, fileId);
+        setInstructionFileContents((current) => ({
+          ...current,
+          [fileId]: contentResponse,
+        }));
+      } catch (err) {
+        setError(err.response?.data?.detail || err.message);
+        return;
+      } finally {
+        setLoadingInstructionFileId(null);
+      }
+    }
+
+    setVisibleInstructionFileIds((current) => [...current, fileId]);
   };
 
   const parseJudgeReport = (reportValue) => {
@@ -260,6 +301,64 @@ export default function RunDetailsPage() {
                 </p>
               </>
             ) : null}
+            {Array.isArray(run.instruction_files) && run.instruction_files.length ? (
+              <div className="stack">
+                <p>
+                  Instruction files used during execution: {run.instruction_files.length}
+                  {" "}
+                  ({formatFileSize(
+                    run.instruction_files.reduce(
+                      (acc, file) => acc + Number(file.size_bytes || 0),
+                      0
+                    )
+                  )}
+                  )
+                </p>
+                <ul className="instruction-file-list">
+                  {run.instruction_files
+                    .slice()
+                    .sort((a, b) => a.upload_order - b.upload_order)
+                    .map((file) => {
+                      const isVisible = visibleInstructionFileIds.includes(file.id);
+                      const contentPayload = instructionFileContents[file.id];
+                      const isLoading = loadingInstructionFileId === file.id;
+
+                      return (
+                        <li key={file.id} className="instruction-file-item">
+                          <div className="instruction-file-head">
+                            <div>
+                              <strong>
+                                {file.upload_order + 1}. {file.filename}
+                              </strong>
+                              <p className="muted">
+                                {formatFileSize(file.size_bytes)} | sha256: {file.content_sha256}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={isLoading}
+                              onClick={() => toggleInstructionFileContent(file.id)}
+                            >
+                              {isLoading
+                                ? "Loading..."
+                                : isVisible
+                                ? "Hide Content"
+                                : "View Content"}
+                            </button>
+                          </div>
+                          {isVisible && contentPayload ? (
+                            <pre className="instruction-file-preview">
+                              {contentPayload.content}
+                            </pre>
+                          ) : null}
+                        </li>
+                      );
+                    })}
+                </ul>
+              </div>
+            ) : (
+              <p>Instruction files used during execution: none</p>
+            )}
             {run.status === "failed" ? (
               <p className="status-error">
                 Failure Reason: {run.error_message || "Unknown error"}
