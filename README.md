@@ -1,4 +1,10 @@
 # MCP Quick
+
+## Run
+```bash
+./docker_run.sh up --build
+```
+
 ## install the pre-commit at .git/hooks
 ```bash
 pre-commit install
@@ -39,9 +45,8 @@ SANDBOX_COMMAND_PREFIX=wsl.exe
 SANDBOX_NIX_BINARY=nix
 ```
 
-## To Run
+## Run Workflows separately
 
-Workflows separately:
 - Backend (and Database):
 ```bash
 ./scripts/run.sh
