@@ -38,3 +38,16 @@ cross-environment path handling can be tricky and may require extra tuning.
 SANDBOX_COMMAND_PREFIX=wsl.exe
 SANDBOX_NIX_BINARY=nix
 ```
+
+## To Run
+
+Workflows separately:
+- Backend (and Database):
+```bash
+./scripts/run.sh
+```
+
+- Frontend:
+```bash
+npm install and npm run dev
+```
