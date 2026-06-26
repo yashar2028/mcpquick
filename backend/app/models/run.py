@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from sqlalchemy import (
@@ -20,8 +20,13 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
+if TYPE_CHECKING:
+    from app.models.user import User
+
 
 class RunStatus(str, Enum):
+    """Persisted lifecycle states for an evaluation run."""
+
     QUEUED = "queued"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -29,16 +34,30 @@ class RunStatus(str, Enum):
 
 
 class EvaluationRun(Base):
+    """Primary run aggregate persisted for each user-submitted evaluation."""
+
     __tablename__ = "evaluation_runs"
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid4())
     )
+    user_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     provider: Mapped[str] = mapped_column(String(64), nullable=False)
     model: Mapped[str] = mapped_column(String(128), nullable=False)
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[RunStatus] = mapped_column(
-        SQLEnum(RunStatus, name="run_status"), nullable=False, default=RunStatus.QUEUED
+        SQLEnum(
+            RunStatus,
+            name="run_status",
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
+        nullable=False,
+        default=RunStatus.QUEUED,
     )
     max_steps: Mapped[int] = mapped_column(Integer, nullable=False, default=20)
 
@@ -47,6 +66,7 @@ class EvaluationRun(Base):
 
     requested_external_mcp_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     external_mcp_enabled: Mapped[bool] = mapped_column(nullable=False, default=False)
+    mcp_config: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     sandbox_profile: Mapped[str] = mapped_column(
         String(128), nullable=False, default="nix-sandbox-v1"
     )
@@ -54,6 +74,8 @@ class EvaluationRun(Base):
     total_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     score_breakdown: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     evaluation_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    judge_report: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    judge_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     step_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     token_input: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -87,9 +109,19 @@ class EvaluationRun(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    instruction_files: Mapped[list[RunInstructionFile]] = relationship(
+        "RunInstructionFile",
+        back_populates="run",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="RunInstructionFile.upload_order",
+    )
+    user: Mapped[User] = relationship("User", back_populates="runs")
 
 
 class RunEvent(Base):
+    """Timeline event row associated with one evaluation run."""
+
     __tablename__ = "run_events"
 
     id: Mapped[str] = mapped_column(
@@ -110,3 +142,31 @@ class RunEvent(Base):
     )
 
     run: Mapped[EvaluationRun] = relationship("EvaluationRun", back_populates="events")
+
+
+class RunInstructionFile(Base):
+    """Immutable instruction file snapshot associated with one run."""
+
+    __tablename__ = "run_instruction_files"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid4())
+    )
+    run_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("evaluation_runs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    filename: Mapped[str] = mapped_column(String(240), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    upload_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    run: Mapped[EvaluationRun] = relationship(
+        "EvaluationRun", back_populates="instruction_files"
+    )

@@ -176,4 +176,7 @@ cython_debug/
 # Sandbox runtime artifacts
 .sandbox_runs/
 
-PLAN.md
+PLAN.mdS
+
+.env
+.env.*

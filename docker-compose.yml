@@ -25,17 +25,8 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql+asyncpg://user1:12345678910@db:5432/mcpquick_dev
-      SANDBOX_PROFILE: nix-sandbox-v1
-      ENABLE_GITHUB_MCP_INGESTION: "false"
-      SANDBOX_COMMAND_PREFIX: ""
-      SANDBOX_NIX_BINARY: nix
-      SANDBOX_NIX_FLAKE_REF: ./sandbox-nix#mcp-runner
-      SANDBOX_RUNTIME_MODULE: app.sandbox.runtime_entry
-      SANDBOX_TIMEOUT_SECONDS: "600"
-      SANDBOX_RUN_BASE_DIR: .sandbox_runs
-      SANDBOX_ALLOW_LOCAL_FALLBACK: "true"
-      SANDBOX_LOCAL_PYTHON_BINARY: python
+      DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql+asyncpg://user1:12345678910@db:5432/mcpquick_dev}
+      JUDGE_ANTHROPIC_API_KEY: ${JUDGE_ANTHROPIC_API_KEY}
     ports:
       - "8000:8000"
     volumes:
@@ -49,14 +40,12 @@ services:
     container_name: mcpquick_frontend
     depends_on:
       - backend
-    environment:
-      VITE_API_URL: http://localhost:8000
     ports:
       - "5173:5173"
     volumes:
       - ./frontend:/app
       - /app/node_modules
-    command: npm run dev -- --host 0.0.0.0 --port 5173
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5173"
 
 volumes:
   postgres_data:

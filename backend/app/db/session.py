@@ -1,3 +1,5 @@
+"""Async SQLAlchemy session factory and request-scoped DB dependency."""
+
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
@@ -16,5 +18,6 @@ AsyncSessionLocal = async_sessionmaker(
 
 
 async def get_db():
+    """Yield one async DB session per request/operation scope."""
     async with AsyncSessionLocal() as session:
         yield session

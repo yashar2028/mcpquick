@@ -1,0 +1,356 @@
+"""Provider invocation layer for sandbox runtime.
+
+Design goals:
+- Keep runtime orchestration simple by centralizing provider calls here.
+- Use official provider SDKs when available.
+- Preserve sandbox reliability by falling back to direct HTTP if an SDK
+    is unavailable in the runtime environment.
+
+Provider identifiers accepted by `call_provider`:
+- openai
+- anthropic / claude
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
+import subprocess
+import sys
+import time
+from typing import Final
+
+from app.sandbox.http_client import post_json
+from app.sandbox.text_blocks import blocks_to_text as _blocks_to_text_shared
+
+HTTP_TIMEOUT_SECONDS = 90
+MAX_OUTPUT_TOKENS = 512
+TOKEN_ESTIMATE_DIVISOR = 4
+
+PROVIDER_OPENAI: Final[str] = "openai"
+PROVIDER_ANTHROPIC: Final[str] = "anthropic"
+PROVIDER_ERROR_MESSAGE: Final[str] = (
+    "unsupported provider. use 'openai' or 'anthropic'/'claude'."
+)
+
+PROVIDER_ALIASES: Final[dict[str, str]] = {
+    "openai": PROVIDER_OPENAI,
+    "gpt": PROVIDER_OPENAI,
+    "anthropic": PROVIDER_ANTHROPIC,
+    "claude": PROVIDER_ANTHROPIC,
+}
+
+RECOMMENDED_MODELS: Final[dict[str, list[str]]] = {
+    PROVIDER_OPENAI: ["gpt-4o-mini", "gpt-4o"],
+    PROVIDER_ANTHROPIC: [
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5-20251001",
+        "claude-opus-4-7",
+    ],
+}
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderCallResult:
+    """Result of a single model call to an external provider API."""
+
+    output_text: str
+    token_input: int
+    token_output: int
+    latency_ms: int
+    tool_trace: list[dict[str, object]]
+
+
+def normalize_provider(provider: str) -> str:
+    """Normalize provider aliases into canonical provider keys."""
+    provider_key = provider.strip().lower()
+    normalized = PROVIDER_ALIASES.get(provider_key)
+    if normalized is not None:
+        return normalized
+    raise RuntimeError(PROVIDER_ERROR_MESSAGE)
+
+
+def _safe_int(value: object, fallback: int) -> int:
+    """Coerce value to int, returning fallback for unsupported/boolean types."""
+    if isinstance(value, bool):
+        return fallback
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    return fallback
+
+
+def _estimate_tokens(text: str) -> int:
+    """Estimate token count from character count using a coarse divisor."""
+    return max(1, len(text) // TOKEN_ESTIMATE_DIVISOR)
+
+
+def _normalize_output_text(value: object) -> str:
+    """Normalize provider output into a non-empty printable string."""
+    if isinstance(value, str):
+        normalized = value.strip()
+        return normalized or "(empty response)"
+    if value is None:
+        return "(empty response)"
+    normalized = str(value).strip()
+    return normalized or "(empty response)"
+
+
+def _blocks_to_text(blocks: object) -> str:
+    """Flatten Anthropic-style text blocks into one normalized string."""
+    return _blocks_to_text_shared(blocks, empty_value="(empty response)")
+
+
+def _openai_message_content_to_text(content: object) -> str:
+    """Normalize OpenAI message content variants into plain text."""
+    if isinstance(content, str):
+        return _normalize_output_text(content)
+    if not isinstance(content, list):
+        return _normalize_output_text(content)
+
+    parts: list[str] = []
+    for item in content:
+        if not isinstance(item, dict):
+            continue
+        text = item.get("text")
+        if isinstance(text, str) and text:
+            parts.append(text)
+
+    return _normalize_output_text("\n".join(parts))
+
+
+def _build_result(
+    prompt: str,
+    output_text: object,
+    token_input: object,
+    token_output: object,
+    latency_ms: object,
+    tool_trace: list[dict[str, object]] | None = None,
+) -> ProviderCallResult:
+    """Build a normalized provider result with safe fallback token estimates."""
+    normalized_output = _normalize_output_text(output_text)
+    fallback_input = _estimate_tokens(prompt)
+    fallback_output = _estimate_tokens(normalized_output)
+    normalized_trace = tool_trace or []
+
+    return ProviderCallResult(
+        output_text=normalized_output,
+        token_input=max(_safe_int(token_input, fallback_input), 1),
+        token_output=max(_safe_int(token_output, fallback_output), 1),
+        latency_ms=max(_safe_int(latency_ms, 1), 1),
+        tool_trace=normalized_trace,
+    )
+
+
+def _runtime_error_with_status(prefix: str, exc: Exception) -> RuntimeError:
+    """Convert provider SDK errors to normalized RuntimeError messages."""
+    status = _error_status_code(exc)
+
+    if status is None:
+        return RuntimeError(f"{prefix} API request failed: {exc}")
+    return RuntimeError(f"{prefix} API request failed with status {status}: {exc}")
+
+
+def _error_status_code(exc: Exception) -> int | None:
+    """Best-effort extraction of HTTP status code from provider SDK exceptions."""
+    status = getattr(exc, "status_code", None)
+    if status is None:
+        code_attr = getattr(exc, "code", None)
+        if callable(code_attr):
+            try:
+                status = code_attr()
+            except Exception:
+                status = None
+        else:
+            status = code_attr
+
+    if isinstance(status, int):
+        return status
+    if isinstance(status, str) and status.isdigit():
+        return int(status)
+    return None
+
+
+def _ensure_model(model: str, provider: str) -> str:
+    """Return explicit model name or first recommended default for provider."""
+    model_name = model.strip()
+    if model_name:
+        return model_name
+
+    defaults = RECOMMENDED_MODELS.get(provider, [])
+    if defaults:
+        return defaults[0]
+    raise RuntimeError(f"No default model configured for provider '{provider}'")
+
+
+def _pick_anthropic_fallback_model(requested: str) -> str | None:
+    """Pick a fallback Anthropic model if the requested model is unavailable."""
+    candidates = [
+        name
+        for name in RECOMMENDED_MODELS.get(PROVIDER_ANTHROPIC, [])
+        if name != requested
+    ]
+    return candidates[0] if candidates else None
+
+
+def _ensure_anthropic_client():
+    try:
+        from anthropic import Anthropic  # type: ignore
+
+        return Anthropic
+    except ImportError:
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "anthropic",
+                "--disable-pip-version-check",
+                "--no-input",
+            ],
+            check=True,
+        )
+        from anthropic import Anthropic  # type: ignore
+
+        return Anthropic
+
+
+def _call_openai(prompt: str, model: str, api_key: str) -> ProviderCallResult:
+    """Call OpenAI using SDK-first strategy with HTTP fallback."""
+    model_name = _ensure_model(model, PROVIDER_OPENAI)
+
+    try:
+        from openai import OpenAI
+
+        started = time.perf_counter()
+        client = OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            max_tokens=MAX_OUTPUT_TOKENS,
+        )
+        latency_ms = int((time.perf_counter() - started) * 1000)
+
+        choice = response.choices[0] if response.choices else None
+        message = getattr(choice, "message", None)
+        content = getattr(message, "content", "") if message is not None else ""
+
+        usage = getattr(response, "usage", None)
+        return _build_result(
+            prompt=prompt,
+            output_text=_openai_message_content_to_text(content),
+            token_input=getattr(usage, "prompt_tokens", None),
+            token_output=getattr(usage, "completion_tokens", None),
+            latency_ms=latency_ms,
+        )
+    except ImportError:
+        pass
+    except Exception as exc:
+        raise _runtime_error_with_status("openai", exc) from exc
+
+    payload = {
+        "model": model_name,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0,
+        "max_tokens": MAX_OUTPUT_TOKENS,
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    response, latency_ms = post_json(
+        url="https://api.openai.com/v1/chat/completions",
+        payload=payload,
+        headers=headers,
+        timeout_seconds=HTTP_TIMEOUT_SECONDS,
+    )
+
+    choices = response.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise RuntimeError("openai response did not contain choices")
+
+    message = choices[0].get("message") if isinstance(choices[0], dict) else None
+    content = message.get("content") if isinstance(message, dict) else ""
+
+    usage = response.get("usage") if isinstance(response.get("usage"), dict) else {}
+    return _build_result(
+        prompt=prompt,
+        output_text=_openai_message_content_to_text(content),
+        token_input=usage.get("prompt_tokens"),
+        token_output=usage.get("completion_tokens"),
+        latency_ms=latency_ms,
+    )
+
+
+def _call_anthropic(prompt: str, model: str, api_key: str) -> ProviderCallResult:
+    """Call Anthropic using the official SDK."""
+    model_name = _ensure_model(model, PROVIDER_ANTHROPIC)
+    Anthropic = _ensure_anthropic_client()
+
+    started = time.perf_counter()
+    client = Anthropic(api_key=api_key)
+    try:
+        response = client.messages.create(
+            model=model_name,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            max_tokens=MAX_OUTPUT_TOKENS,
+        )
+    except Exception as exc:
+        if _error_status_code(exc) == 404:
+            fallback_model = _pick_anthropic_fallback_model(model_name)
+            if fallback_model:
+                try:
+                    response = client.messages.create(
+                        model=fallback_model,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0,
+                        max_tokens=MAX_OUTPUT_TOKENS,
+                    )
+                except Exception as fallback_exc:
+                    raise _runtime_error_with_status(
+                        "anthropic", fallback_exc
+                    ) from fallback_exc
+            else:
+                raise _runtime_error_with_status("anthropic", exc) from exc
+        else:
+            raise _runtime_error_with_status("anthropic", exc) from exc
+
+    latency_ms = int((time.perf_counter() - started) * 1000)
+    usage = getattr(response, "usage", None)
+    return _build_result(
+        prompt=prompt,
+        output_text=_blocks_to_text(getattr(response, "content", [])),
+        token_input=getattr(usage, "input_tokens", None),
+        token_output=getattr(usage, "output_tokens", None),
+        latency_ms=latency_ms,
+    )
+
+
+ProviderCaller = Callable[[str, str, str], ProviderCallResult]
+PROVIDER_DISPATCH: Final[dict[str, ProviderCaller]] = {
+    PROVIDER_OPENAI: _call_openai,
+    PROVIDER_ANTHROPIC: _call_anthropic,
+}
+
+
+def call_provider(
+    prompt: str, provider: str, model: str, api_key: str
+) -> ProviderCallResult:
+    """Dispatch one prompt to a provider/model pair and return normalized metrics.
+
+    Args:
+        prompt: User prompt sent to provider model.
+        provider: Provider key/alias (e.g. openai, anthropic).
+        model: Model name used for that provider.
+        api_key: Session API key injected by control-plane.
+    """
+    provider_key = normalize_provider(provider)
+    caller = PROVIDER_DISPATCH.get(provider_key)
+    if caller is None:
+        raise RuntimeError(PROVIDER_ERROR_MESSAGE)
+    return caller(prompt, model, api_key)

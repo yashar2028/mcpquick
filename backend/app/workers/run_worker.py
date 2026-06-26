@@ -10,15 +10,33 @@ This worker executes the run lifecycle:
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import UTC, datetime
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.db.session import AsyncSessionLocal
 from app.models.run import EvaluationRun, RunEvent, RunStatus
+from app.services.api_keys import pop_run_api_key
+from app.services.judge import run_judge
+from app.services.prompt_builder import (
+    build_execution_prompt,
+    build_instruction_file_metadata,
+)
+from app.services.run_failures import classify_run_failure
 from app.services.sandbox import SandboxRunRequest, get_sandbox_adapter
-from app.services.scoring import compute_weighted_score
+from app.services.scoring import (
+    build_heuristic_summary,
+    build_recommendations,
+    compute_weighted_score,
+    estimate_token_cost_usd,
+)
+
+
+logger = logging.getLogger(__name__)
 
 
 def enqueue_run(run_id: str) -> None:
@@ -27,21 +45,45 @@ def enqueue_run(run_id: str) -> None:
 
 
 async def _add_event(
+    session: AsyncSession,
     run: EvaluationRun,
     event_type: str,
     message: str,
     payload: dict,
     step_index: int | None = None,
 ) -> None:
-    """Append a timeline event to the run aggregate before commit."""
-    run.events.append(
+    """Append a timeline event to the run aggregate before commit.
+
+    `step_index` is optional because some events are run-level (allocation,
+    key loading, failures) rather than step-scoped model execution events.
+    """
+    session.add(
         RunEvent(
+            run_id=run.id,
             event_type=event_type,
             message=message,
             payload=payload,
             step_index=step_index,
         )
     )
+
+
+def _collect_mcp_repo_urls(
+    mcp_config: dict | None,
+    fallback_url: str | None,
+) -> list[str]:
+    repo_urls: list[str] = []
+    if isinstance(mcp_config, dict):
+        repos_raw = mcp_config.get("repos")
+        if isinstance(repos_raw, list):
+            for repo in repos_raw:
+                if isinstance(repo, dict) and repo.get("repo_url"):
+                    repo_urls.append(str(repo.get("repo_url")))
+
+    if not repo_urls and fallback_url:
+        repo_urls.append(fallback_url)
+
+    return repo_urls
 
 
 async def process_run(run_id: str) -> None:
@@ -51,7 +93,9 @@ async def process_run(run_id: str) -> None:
     """
     async with AsyncSessionLocal() as session:
         result = await session.execute(
-            select(EvaluationRun).where(EvaluationRun.id == run_id)
+            select(EvaluationRun)
+            .options(selectinload(EvaluationRun.instruction_files))
+            .where(EvaluationRun.id == run_id)
         )
         run = result.scalar_one_or_none()
         if run is None:
@@ -61,6 +105,7 @@ async def process_run(run_id: str) -> None:
             run.status = RunStatus.RUNNING
             run.started_at = datetime.now(UTC)
             await _add_event(
+                session,
                 run,
                 event_type="sandbox_allocated",
                 message="Allocated isolated Nix sandbox profile for run execution.",
@@ -73,36 +118,86 @@ async def process_run(run_id: str) -> None:
                 },
             )
 
-            if (
-                run.requested_external_mcp_url
-                and not settings.ENABLE_GITHUB_MCP_INGESTION
-            ):
+            repo_urls = _collect_mcp_repo_urls(
+                run.mcp_config, run.requested_external_mcp_url
+            )
+
+            if repo_urls:
                 await _add_event(
+                    session,
                     run,
-                    event_type="external_mcp_disabled",
-                    message="External MCP URL was provided but GitHub MCP ingestion is disabled in v1.",
-                    payload={"url": run.requested_external_mcp_url},
+                    event_type="mcp_repo_configured",
+                    message="MCP repo configuration recorded for sandbox tool execution.",
+                    payload={
+                        "repo_urls": repo_urls,
+                        "config": run.mcp_config or {},
+                    },
                 )
 
-            await asyncio.sleep(0.2)
+            instruction_file_metadata = build_instruction_file_metadata(
+                run.instruction_files
+            )
+            execution_prompt = build_execution_prompt(run.prompt, run.instruction_files)
+
+            if instruction_file_metadata:
+                await _add_event(
+                    session,
+                    run,
+                    event_type="instruction_files_bound",
+                    message="Instruction files attached to execution prompt.",
+                    payload={
+                        "count": len(instruction_file_metadata),
+                        "total_size_bytes": sum(
+                            int(item.get("size_bytes", 0))
+                            for item in instruction_file_metadata
+                        ),
+                        "files": instruction_file_metadata,
+                    },
+                )
+
             await _add_event(
+                session,
                 run,
                 event_type="model_execution_started",
                 message="Started provider model loop inside sandbox.",
-                payload={"provider": run.provider, "model": run.model},
+                payload={
+                    "provider": run.provider,
+                    "model": run.model,
+                    "instruction_file_count": len(instruction_file_metadata),
+                },
                 step_index=1,
             )
+            run.updated_at = datetime.now(UTC)
+            await session.commit()
 
-            await asyncio.sleep(0.2)
+            provider_api_key = await pop_run_api_key(
+                run.id
+            )  # Pop the key from memory and return
+            if not provider_api_key:
+                raise RuntimeError(
+                    "Run API key was missing from the in-memory session store. "
+                    "Re-submit this run with a provider key."
+                )
+
+            await _add_event(
+                session,
+                run,
+                event_type="provider_key_loaded",
+                message="Loaded session API key for provider call.",
+                payload={"provider": run.provider, "key_present": True},
+            )
+
             sandbox_adapter = get_sandbox_adapter()
             sandbox_result = await sandbox_adapter.execute(
                 SandboxRunRequest(
                     run_id=run.id,
-                    prompt=run.prompt,
+                    prompt=execution_prompt,
                     provider=run.provider,
                     model=run.model,
+                    api_key=provider_api_key,
                     max_steps=run.max_steps,
                     external_mcp_url=run.requested_external_mcp_url,
+                    mcp_config=run.mcp_config,
                 )
             )
             metrics = sandbox_result.metrics
@@ -121,22 +216,67 @@ async def process_run(run_id: str) -> None:
             run.step_count = sandbox_result.step_count
             run.token_input = sandbox_result.token_input
             run.token_output = sandbox_result.token_output
-            run.estimated_cost_usd = round(
-                (run.token_input + run.token_output) * 0.000004, 6
+            run.estimated_cost_usd = estimate_token_cost_usd(
+                provider=run.provider,
+                model=run.model,
+                token_input=run.token_input,
+                token_output=run.token_output,
             )
             run.latency_ms = sandbox_result.latency_ms
             run.total_score = total_score
+            recommendations = build_recommendations(metric_scores)
             run.score_breakdown = {
                 "weights": weights,
                 "metric_scores": metric_scores,
                 "metrics": metrics,
                 "computation": "weighted_score_sum",
+                "recommendations": recommendations,
             }
-            run.evaluation_summary = "Run completed in isolated sandbox with acceptable tool behavior and cost/latency trade-offs."
+            run.evaluation_summary = build_heuristic_summary(total_score, metric_scores)
+
+            if settings.JUDGE_ANTHROPIC_API_KEY:
+                try:
+                    judge_report, judge_model, judge_latency_ms = run_judge(
+                        prompt=execution_prompt,
+                        output_text=sandbox_result.output_text,
+                        tool_trace=sandbox_result.tool_trace,
+                        repo_urls=repo_urls,
+                        instruction_files_metadata=instruction_file_metadata,
+                    )
+                    run.judge_report = judge_report
+                    run.judge_model = judge_model
+                    await _add_event(
+                        session,
+                        run,
+                        event_type="judge_completed",
+                        message="Judge evaluation completed.",
+                        payload={
+                            "model": judge_model,
+                            "latency_ms": judge_latency_ms,
+                        },
+                    )
+                except Exception as exc:
+                    await _add_event(
+                        session,
+                        run,
+                        event_type="judge_failed",
+                        message="Judge evaluation failed; heuristic report used.",
+                        payload={"error": str(exc)[:500]},
+                    )
+            else:
+                await _add_event(
+                    session,
+                    run,
+                    event_type="judge_skipped",
+                    message="Judge evaluation skipped (no judge API key).",
+                    payload={},
+                )
+
             run.status = RunStatus.COMPLETED
             run.finished_at = datetime.now(UTC)
 
             await _add_event(
+                session,
                 run,
                 event_type="evaluation_completed",
                 message="Calculated weighted scorecard and generated report.",
@@ -146,13 +286,22 @@ async def process_run(run_id: str) -> None:
 
             await session.commit()
         except Exception as exc:  # pragma: no cover - defensive runtime guard
+            diagnostics = classify_run_failure(str(exc))
+
+            logger.exception("Run %s failed: %s", run_id, diagnostics.summary)
+
             run.status = RunStatus.FAILED
-            run.error_message = str(exc)
+            run.error_message = diagnostics.summary
             run.finished_at = datetime.now(UTC)
             await _add_event(
+                session,
                 run,
                 event_type="run_failed",
-                message="Run failed during execution pipeline.",
-                payload={"error": str(exc)},
+                message=f"Run failed: {diagnostics.summary}",
+                payload={
+                    "error_summary": diagnostics.summary,
+                    "next_action": diagnostics.next_action,
+                    "error_raw": diagnostics.raw_error[:2000],
+                },
             )
             await session.commit()

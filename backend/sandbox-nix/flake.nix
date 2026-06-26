@@ -10,13 +10,15 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; };
-        runnerPython = pkgs.python312.withPackages (_ps: [ ]);
+        runnerPython = pkgs.python312.withPackages (ps: [ ps.pip ]);
       in {
         devShells.mcp-runner = pkgs.mkShell {
           packages = [
             runnerPython
             pkgs.coreutils
             pkgs.jq
+            pkgs.git
+            pkgs.nodejs
           ];
         };
       }

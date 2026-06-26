@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
@@ -20,6 +21,7 @@ from app.sandbox.contracts import (
 
 
 MAX_LOG_CHARS: Final[int] = 4000
+PROVIDER_API_KEY_ENV: Final[str] = "SANDBOX_PROVIDER_API_KEY"
 
 
 class SandboxBoundaryError(RuntimeError):
@@ -49,8 +51,15 @@ class NixSandboxRunner:
     def __init__(self, config: NixSandboxRunnerConfig):
         self._config = config
 
-    async def run(self, request: SandboxExecutionRequest) -> SandboxExecutionResult:
+    async def run(
+        self, request: SandboxExecutionRequest, provider_api_key: str
+    ) -> SandboxExecutionResult:
         """Run one sandbox task and return validated typed result."""
+        if not provider_api_key:
+            raise SandboxBoundaryError(
+                "Provider API key was missing for sandbox execution"
+            )
+
         run_dir = self._config.runs_base_dir / request.run_id
         run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -59,46 +68,20 @@ class NixSandboxRunner:
         stdout_file = run_dir / "stdout.log"
         stderr_file = run_dir / "stderr.log"
 
-        request_file.write_text(
+        request_file.write_text(  # in _build_nix_command / _build_local_command is passed to execution command
             json.dumps(request.to_dict(), ensure_ascii=True, indent=2),
             encoding="utf-8",
         )
 
-        command_prefix = [
-            token for token in self._config.command_prefix.split() if token
-        ]
-        nix_command = [
-            *command_prefix,
-            self._config.nix_binary,
-            "--extra-experimental-features",
-            "nix-command flakes",
-            "develop",
-            self._config.nix_flake_ref,
-            "--command",
-            "python",
-            "-m",
-            self._config.runtime_module,
-            "--request",
-            str(request_file),
-            "--output",
-            str(result_file),
-        ]
-
-        local_command = [
-            self._config.local_python_binary,
-            "-m",
-            self._config.runtime_module,
-            "--request",
-            str(request_file),
-            "--output",
-            str(result_file),
-        ]
+        nix_command = self._build_nix_command(request_file, result_file)
+        local_command = self._build_local_command(request_file, result_file)
 
         fallback_used = False
         fallback_note = ""
+        env_extra = {PROVIDER_API_KEY_ENV: provider_api_key}
 
         try:
-            process = await self._spawn_process(nix_command)
+            process = await self._spawn_process(nix_command, env_extra)
         except FileNotFoundError as exc:
             if not self._config.allow_local_fallback:
                 raise SandboxBoundaryError(
@@ -107,7 +90,7 @@ class NixSandboxRunner:
                 ) from exc
 
             try:
-                process = await self._spawn_process(local_command)
+                process = await self._spawn_process(local_command, env_extra)
             except FileNotFoundError as local_exc:
                 raise SandboxBoundaryError(
                     "Both nix launcher and local fallback launcher were not found. "
@@ -159,18 +142,58 @@ class NixSandboxRunner:
                 f"Sandbox returned invalid result shape: {exc}"
             ) from exc
 
-    async def _spawn_process(self, command: list[str]) -> asyncio.subprocess.Process:
+    async def _spawn_process(
+        self, command: list[str], env_extra: dict[str, str]
+    ) -> asyncio.subprocess.Process:
         """Spawn a subprocess for sandbox execution command."""
+        env = os.environ.copy()
+        env.update(env_extra)
+
         return await asyncio.create_subprocess_exec(
             *command,
             cwd=str(self._config.backend_workdir),
+            env=env,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
 
+    def _build_nix_command(self, request_file: Path, result_file: Path) -> list[str]:
+        """Build the primary nix command used for sandbox process execution."""
+        command_prefix = [
+            token for token in self._config.command_prefix.split() if token
+        ]
+        return [  # Initiate into the nix sandbox and execute the python runtime module (runtime_entry.py)
+            *command_prefix,
+            self._config.nix_binary,
+            "--extra-experimental-features",
+            "nix-command flakes",
+            "develop",
+            self._config.nix_flake_ref,
+            "--command",
+            "python",
+            "-m",
+            self._config.runtime_module,
+            "--request",  # --request and --output arguments are parsed at runtime_entry as well
+            str(request_file),
+            "--output",
+            str(result_file),
+        ]
+
+    def _build_local_command(self, request_file: Path, result_file: Path) -> list[str]:
+        """Build local fallback command used when nix launcher is unavailable."""
+        return [
+            self._config.local_python_binary,
+            "-m",
+            self._config.runtime_module,
+            "--request",
+            str(request_file),
+            "--output",
+            str(result_file),
+        ]
+
 
 def _trim(value: str) -> str:
-    """Trim long stderr/stdout output for safe exception messages."""
+    """Trim long stderr/stdout output for safe exception messages and events."""
     if len(value) <= MAX_LOG_CHARS:
         return value
     return value[:MAX_LOG_CHARS] + "..."

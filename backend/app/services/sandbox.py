@@ -19,8 +19,10 @@ class SandboxRunRequest:
     prompt: str
     provider: str
     model: str
+    api_key: str
     max_steps: int
     external_mcp_url: str | None
+    mcp_config: dict[str, object] | None
 
 
 @dataclass(slots=True)
@@ -31,6 +33,8 @@ class SandboxRunResult:
     token_input: int
     token_output: int
     latency_ms: int
+    output_text: str
+    tool_trace: list[dict[str, object]]
     metrics: dict[str, float]
 
 
@@ -70,7 +74,9 @@ class NixSandboxAdapter:
                 model=request.model,
                 max_steps=request.max_steps,
                 external_mcp_url=request.external_mcp_url,
-            )
+                mcp_config=request.mcp_config,
+            ),
+            provider_api_key=request.api_key,
         )
 
         return SandboxRunResult(
@@ -78,6 +84,8 @@ class NixSandboxAdapter:
             token_input=execution_result.token_input,
             token_output=execution_result.token_output,
             latency_ms=execution_result.latency_ms,
+            output_text=execution_result.output_text,
+            tool_trace=execution_result.tool_trace,
             metrics=execution_result.metrics,
         )
 
