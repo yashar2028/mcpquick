@@ -1,6 +1,8 @@
 name: Lint, Sort and Format Check
 
 on:
+  workflow_dispatch:
+
   push:
     branches:
       - main
