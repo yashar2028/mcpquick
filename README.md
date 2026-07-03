@@ -84,3 +84,15 @@ The backend exposes these core areas:
 - `DELETE /v1/runs/{run_id}` to remove a run.
 
 The run worker stores provider keys only for the active session, executes the sandboxed model call, computes a weighted score from deterministic metrics, and persists events plus the final report that also includes a judge report.
+
+
+## Contributers
+[Yashar Najafi](https://github.com/yashar2028)
+
+[Sina Najafi](https://github.com/SinaNajafi1)
+
+[Youssef Daoud ](https://github.com/MrHowtz)
+
+[Sepehr Hajimokhtar](https://github.com/sepehrmokhtar)
+
+[Parnian Taji](https://github.com/ParnianTj)
