@@ -1,0 +1,30 @@
+name: Deploy to DigitalOcean Droplet
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.5.4
+        with:
+          ssh-private-key: ${{ secrets.DO_SSH_KEY }}
+
+      - name: Deploy with SSH to Droplet
+        run: |
+          ssh -o StrictHostKeyChecking=no root@167.172.165.20 '
+            cd ~/MedPort &&
+            git pull origin main &&
+            docker compose --env-file .env.prod.example down &&
+            docker compose --env-file .env.prod.example pull &&
+            docker compose --env-file .env.prod.example up -d --build --remove-orphans
+          '
